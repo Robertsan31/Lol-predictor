@@ -15,10 +15,10 @@ jobs:
 
     steps:
       - name: Checkout do código
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # Mudei de v3 para v4 aqui
 
       - name: Instalar Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5 # Mudei de v4 para v5 aqui
         with:
           python-version: '3.9'
 
@@ -35,4 +35,3 @@ jobs:
           git add *.csv
           git commit -m "🤖 Dados atualizados automaticamente" || exit 0
           git push
-          
