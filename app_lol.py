@@ -124,18 +124,59 @@ with aba1:
             col_b.metric(label=f"Vitória - {time_vermelho}", value=f"{probabilidade[0]*100:.1f}%")
 
 with aba2:
-    st.subheader("Calculadora de Stake (Kelly Fracionado)")
-    banca = st.number_input("Banca Atual (R$)", value=1000.0)
-    chance_ia = st.number_input("Probabilidade da IA (%)", min_value=1.0, max_value=99.0, value=55.0)
-    odd_casa = st.number_input("Odd da Casa de Apostas", min_value=1.01, value=1.85)
+    st.subheader("Calculadora Avançada de Stake (Critério de Kelly)")
     
+    col1, col2 = st.columns(2)
+    with col1:
+        banca = st.number_input("Banca Atual (R$)", min_value=10.0, value=1000.0, step=50.0)
+        chance_ia = st.number_input("Probabilidade da IA (%)", min_value=1.0, max_value=99.0, value=55.0)
+        odd_casa = st.number_input("Odd da Casa de Apostas", min_value=1.01, value=1.85, step=0.05)
+    
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True) # Espaçamento
+        perfil_risco = st.selectbox("Seu Perfil de Risco (Fração de Kelly)", [
+            "Conservador (1/8 - Muito Seguro)",
+            "Recomendado (1/4 - Equilibrado)",
+            "Agressivo (1/2 - Maior Risco)",
+            "Kamikaze (Kelly Cheio - NÃO RECOMENDADO)"
+        ], index=1)
+
+    # Dicionário para mapear a escolha do usuário para a matemática
+    fracoes = {
+        "Conservador (1/8 - Muito Seguro)": 8,
+        "Recomendado (1/4 - Equilibrado)": 4,
+        "Agressivo (1/2 - Maior Risco)": 2,
+        "Kamikaze (Kelly Cheio - NÃO RECOMENDADO)": 1
+    }
+    divisor_kelly = fracoes[perfil_risco]
+
+    # --- MATEMÁTICA ---
     p = chance_ia / 100
     b = odd_casa - 1
     
+    # Cálculo do Valor Esperado (EV)
+    ev_percentual = ((p * odd_casa) - 1) * 100
+
+    st.markdown("---")
+    
     if b > 0:
-        f = (b * p - (1 - p)) / b
-        if f > 0:
-            st.success("📈 Aposta de Valor Encontrada!")
-            st.write(f"Risco recomendado (1/4 Kelly): **R$ {(banca * f) / 4:.2f}**")
+        f_star = (b * p - (1 - p)) / b
+        
+        if f_star > 0:
+            aposta_sugerida = (banca * f_star) / divisor_kelly
+            porcentagem_banca = (aposta_sugerida / banca) * 100
+            unidades = porcentagem_banca # Considerando 1 Unidade = 1% da Banca
+
+            st.success("✅ **Aposta de Valor (+EV) Encontrada!**")
+            
+            # Métricas visuais bacanas
+            metrica1, metrica2, metrica3 = st.columns(3)
+            metrica1.metric(label="Vantagem Matemática (EV)", value=f"+{ev_percentual:.2f}%")
+            metrica2.metric(label="Tamanho da Aposta (Unidades)", value=f"{unidades:.2f} U")
+            metrica3.metric(label="Valor em Dinheiro", value=f"R$ {aposta_sugerida:.2f}")
+            
+            st.info(f"💡 **Leitura:** O modelo sugere arriscar **{porcentagem_banca:.2f}%** da sua banca nesta entrada de acordo com o seu perfil de risco.")
+            
         else:
-            st.error("🛑 EV Negativo. Não aposte nesta partida.")
+            st.error("🛑 **EV Negativo (Esperança Matemática Ruim).**")
+            st.write(f"A longo prazo, apostar nessa Odd te fará perder dinheiro (EV: **{ev_percentual:.2f}%**). Fique de fora desse jogo ou busque uma Odd maior ao vivo.")
