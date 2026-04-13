@@ -1,0 +1,38 @@
+name: Robô da Madrugada LCK
+
+on:
+  schedule:
+    # Roda todo dia às 07:00 UTC (04:00 da manhã no Brasil)
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    # Isso aqui é o que cria o seu "BOTÃO" de atualizar manualmente
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Dá permissão pro robô escrever no seu GitHub
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v3
+
+      - name: Instalar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Instalar dependências
+        run: pip install requests
+
+      - name: Rodar script de atualização
+        run: python atualizar_dados.py
+
+      - name: Salvar mudanças no GitHub
+        run: |
+          git config --global user.name 'Robo-Predictor'
+          git config --global user.email 'bot@github.com'
+          git add *.csv
+          git commit -m "🤖 Dados atualizados automaticamente" || exit 0
+          git push
+          
