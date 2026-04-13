@@ -26,6 +26,8 @@ def treinar_modelo_super_cerebro():
     df_limpo['date'] = pd.to_datetime(df_limpo['date'], utc=True)
     df_limpo = df_limpo.sort_values('date')
     df_limpo['patch'] = df_limpo['patch'].astype(str).str.extract(r'(\d+\.\d+)')[0]
+    # Arrumando o erro de digitação do Oracle's Elixir (Transformando 16.x em 26.x)
+    df_limpo['patch'] = df_limpo['patch'].str.replace('^16\.', '26.', regex=True)
     
     df_limpo['wr_geral'] = df_limpo.groupby('teamname')['result'].transform(lambda x: x.shift(1).expanding().mean()).fillna(0.5)
     df_limpo['wr_5_jogos'] = df_limpo.groupby('teamname')['result'].transform(lambda x: x.shift(1).rolling(5, min_periods=1).mean()).fillna(0.5)
