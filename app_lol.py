@@ -20,24 +20,30 @@ def treinar_super_modelo_multimercados():
     df_lck = df_lol[df_lol['league'] == 'LCK'].copy()
     df_times = df_lck[df_lck['position'] == 'team'].copy()
     
-    # Extraindo as colunas para os novos mercados
-    cols = ['gameid', 'date', 'teamname', 'side', 'result', 'patch', 'playoffs', 
-            'dragons', 'opp_dragons', 'teamkills', 'opp_teamkills', 'gamelength']
+    # 1. Usando APENAS colunas oficiais que sabemos que existem!
+    cols = ['gameid', 'date', 'teamname', 'side', 'result', 'patch', 'playoffs', 'dragons', 'gamelength']
     df_limpo = df_times[cols].copy()
     
-    # Criando os alvos dos novos mercados
-    df_limpo['over_4_dragons'] = ((df_limpo['dragons'] + df_limpo['opp_dragons']) > 4).astype(int)
+    # Garantindo que não tenha espaço vazio atrapalhando o cálculo
+    df_limpo['dragons'] = pd.to_numeric(df_limpo['dragons'], errors='coerce').fillna(0)
+    
+    # A Mágica do Pandas: Descobrindo os dragões do adversário matematicamente
+    df_limpo['total_dragons_partida'] = df_limpo.groupby('gameid')['dragons'].transform('sum')
+    df_limpo['opp_dragons'] = df_limpo['total_dragons_partida'] - df_limpo['dragons']
+    
+    # 2. Criando os alvos dos novos mercados
+    df_limpo['over_4_dragons'] = (df_limpo['total_dragons_partida'] > 4).astype(int)
     df_limpo['mais_dragons'] = (df_limpo['dragons'] > df_limpo['opp_dragons']).astype(int)
     df_limpo['jogo_longo'] = (df_limpo['gamelength'] > 1920).astype(int) # Mais de 32 minutos
     
     df_limpo['date'] = pd.to_datetime(df_limpo['date'], utc=True)
     df_limpo = df_limpo.sort_values('date')
     
-    # Consertando o Patch
+    # 3. Consertando o Patch
     df_limpo['patch'] = df_limpo['patch'].astype(str).str.extract(r'(\d+\.\d+)')[0]
     df_limpo['patch'] = df_limpo['patch'].str.replace('^16\.', '26.', regex=True)
     
-    # Criando histórico dinâmico
+    # 4. Criando histórico dinâmico (Win Rate e Dragon Rate)
     for col in ['result', 'mais_dragons', 'dragons']:
         df_limpo[f'media_{col}'] = df_limpo.groupby('teamname')[col].transform(lambda x: x.shift(1).expanding().mean()).fillna(0.5)
 
@@ -45,18 +51,18 @@ def treinar_super_modelo_multimercados():
     df_vermelho = df_limpo[df_limpo['side'] == 'Red'].copy().add_suffix('_red').rename(columns={'gameid_red': 'gameid'})
     df_p = pd.merge(df_azul, df_vermelho, on='gameid').dropna()
 
-    # Novas pistas que a IA vai olhar (incluindo se é MD5/Playoff)
+    # 5. Novas pistas que a IA vai olhar (incluindo se é MD5/Playoff)
     features = ['media_result_blue', 'media_mais_dragons_blue', 'media_dragons_blue',
                 'media_result_red', 'media_mais_dragons_red', 'media_dragons_red', 'playoffs_blue']
     X = df_p[features]
     
-    # Treinando os 4 Cérebros
+    # 6. Treinando os 4 Cérebros
     m_vit = RandomForestClassifier(n_estimators=200, random_state=42).fit(X, df_p['result_blue'])
     m_dra = RandomForestClassifier(n_estimators=200, random_state=42).fit(X, df_p['mais_dragons_blue'])
     m_tot_dra = RandomForestClassifier(n_estimators=200, random_state=42).fit(X, df_p['over_4_dragons_blue'])
     m_tempo = RandomForestClassifier(n_estimators=200, random_state=42).fit(X, df_p['jogo_longo_blue'])
     
-    # Raio-X do modelo Principal
+    # 7. Raio-X do modelo Principal
     importancias = m_vit.feature_importances_
     nomes_variaveis = ['Blue - Win Rate', 'Blue - +Dragões', 'Blue - Média Dragões',
                        'Red - Win Rate', 'Red - +Dragões', 'Red - Média Dragões', 'Fator MD5/Playoff']
