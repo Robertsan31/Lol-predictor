@@ -114,21 +114,22 @@ with aba1:
             
             st.success("Análise tática e de objetivos concluída!")
             
-            st.subheader("🎯 Mercado Principal")
+            st.subheader("🎯 Mercado Principal (Vencedor)")
             col_a, col_b = st.columns(2)
             col_a.metric(label=f"Vitória - {t_azul}", value=f"{prob_v[1]*100:.1f}%")
             col_b.metric(label=f"Vitória - {t_red}", value=f"{prob_v[0]*100:.1f}%")
             
-            st.subheader("🐲 Mercados Secundários (Objetivos e Tempo)")
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Mais Dragões (Azul)", f"{prob_d[1]*100:.1f}%")
-            m2.metric("Over 4.5 Dragões", f"{prob_td[1]*100:.1f}%")
-            m3.metric("Jogo Longo (+32min)", f"{prob_t[1]*100:.1f}%")
-
-            st.markdown("---")
-            st.subheader("🔍 Raio-X do Vencedor")
-            st.write("Veja como as novas estatísticas de dragões e MD5 impactam o cérebro da IA para escolher o vencedor.")
-            st.bar_chart(df_peso_ia)
+            st.subheader("🐲 Mercado de Dragões")
+            d1, d2, d3, d4 = st.columns(4)
+            d1.metric("Over 4.5 Dragões", f"{prob_td[1]*100:.1f}%")
+            d2.metric("Under 4.5 Dragões", f"{prob_td[0]*100:.1f}%")  # O lado Under!
+            d3.metric("Mais Dragões (Azul)", f"{prob_d[1]*100:.1f}%")
+            d4.metric("Mais Dragões (Red/Empate)", f"{prob_d[0]*100:.1f}%")
+            
+            st.subheader("⏱️ Mercado de Tempo")
+            t1, t2 = st.columns(2)
+            t1.metric("Jogo Longo (Over 32 min)", f"{prob_t[1]*100:.1f}%")
+            t2.metric("Jogo Curto (Under 32 min)", f"{prob_t[0]*100:.1f}%") # O lado Under!
 
 with aba2:
     st.subheader("Calculadora Avançada de Stake (Com Trava de Plataforma)")
