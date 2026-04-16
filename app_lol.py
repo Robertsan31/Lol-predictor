@@ -131,10 +131,10 @@ with aba1:
             st.bar_chart(df_peso_ia)
 
 with aba2:
-    st.subheader("Calculadora Avançada de Stake")
+    st.subheader("Calculadora Avançada de Stake (Com Trava de Plataforma)")
     col1, col2 = st.columns(2)
     with col1:
-        banca = st.number_input("Banca Atual (R$)", min_value=10.0, value=1000.0, step=50.0)
+        banca = st.number_input("Banca Atual (R$)", min_value=1.0, value=100.0, step=10.0)
         chance_ia = st.number_input("Probabilidade da IA (%)", min_value=1.0, max_value=99.0, value=55.0)
         odd_casa = st.number_input("Odd da Casa de Apostas", min_value=1.01, value=1.85, step=0.05)
     with col2:
@@ -143,6 +143,8 @@ with aba2:
             "Conservador (1/8 - Muito Seguro)", "Recomendado (1/4 - Equilibrado)", 
             "Agressivo (1/2 - Maior Risco)", "Kamikaze (1/1 - NÃO RECOMENDADO)"
         ], index=1)
+        # NOVO: Trava da aposta mínima da plataforma
+        aposta_minima = st.number_input("Aposta Mínima da Plataforma (R$)", min_value=0.10, value=0.50, step=0.10)
 
     fracoes = {"Conservador (1/8 - Muito Seguro)": 8, "Recomendado (1/4 - Equilibrado)": 4, "Agressivo (1/2 - Maior Risco)": 2, "Kamikaze (1/1 - NÃO RECOMENDADO)": 1}
     divisor_kelly = fracoes[perfil_risco]
@@ -156,30 +158,36 @@ with aba2:
         f_star = (b * p - (1 - p)) / b
         if f_star > 0:
             aposta_sugerida = (banca * f_star) / divisor_kelly
-            st.success("✅ **Aposta de Valor (+EV) Encontrada!**")
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Vantagem (EV)", f"+{ev_percentual:.2f}%")
-            m2.metric("Tamanho (Unidades)", f"{(aposta_sugerida / banca) * 100:.2f} U")
-            m3.metric("Apostar em Dinheiro", f"R$ {aposta_sugerida:.2f}")
             
-            st.markdown("---")
-            st.write("📝 **Salvar no Diário**")
-            c_merc, c_nome = st.columns(2)
-            mercado_nome = c_merc.text_input("Mercado (Ex: Over 4.5 Drags)")
-            confronto_nome = c_nome.text_input("Confronto (Ex: T1 vs GenG)")
-            
-            if st.button("Salvar no Diário de Apostas"):
-                nova_aposta = pd.DataFrame([{
-                    'Data': datetime.now().strftime("%d/%m/%Y"),
-                    'Mercado': mercado_nome,
-                    'Confronto': confronto_nome,
-                    'Odd': odd_casa,
-                    'Stake (R$)': round(aposta_sugerida, 2),
-                    'Status': 'Pendente',
-                    'Retorno (R$)': 0.0
-                }])
-                st.session_state['diario_apostas'] = pd.concat([st.session_state['diario_apostas'], nova_aposta], ignore_index=True)
-                st.toast("Aposta salva com sucesso no Diário!")
+            # NOVO: Verificação inteligente da aposta mínima
+            if aposta_sugerida < aposta_minima:
+                st.warning(f"⚠️ **Aviso de Gestão:** A aposta matemática ideal seria de **R$ {aposta_sugerida:.2f}**, que é menor que o piso da plataforma (R$ {aposta_minima:.2f}).")
+                st.write("💡 *Recomendação: Não force a aposta para R$ 0.50, pois isso quebra a sua segurança. Fique de fora deste mercado ou aumente o risco (Agressivo) apenas se confiar muito na entrada.*")
+            else:
+                st.success("✅ **Aposta de Valor (+EV) Encontrada e Liberada!**")
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Vantagem (EV)", f"+{ev_percentual:.2f}%")
+                m2.metric("Tamanho (Unidades)", f"{(aposta_sugerida / banca) * 100:.2f} U")
+                m3.metric("Apostar em Dinheiro", f"R$ {aposta_sugerida:.2f}")
+                
+                st.markdown("---")
+                st.write("📝 **Salvar no Diário**")
+                c_merc, c_nome = st.columns(2)
+                mercado_nome = c_merc.text_input("Mercado (Ex: Over 4.5 Drags / T1 Ganha)")
+                confronto_nome = c_nome.text_input("Confronto (Ex: T1 vs GenG)")
+                
+                if st.button("Salvar no Diário de Apostas"):
+                    nova_aposta = pd.DataFrame([{
+                        'Data': datetime.now().strftime("%d/%m/%Y"),
+                        'Mercado': mercado_nome,
+                        'Confronto': confronto_nome,
+                        'Odd': odd_casa,
+                        'Stake (R$)': round(aposta_sugerida, 2),
+                        'Status': 'Pendente',
+                        'Retorno (R$)': 0.0
+                    }])
+                    st.session_state['diario_apostas'] = pd.concat([st.session_state['diario_apostas'], nova_aposta], ignore_index=True)
+                    st.toast("Aposta salva com sucesso no Diário!")
         else:
             st.error(f"🛑 **EV Negativo ({ev_percentual:.2f}%).** A longo prazo, apostar nessa Odd te fará perder dinheiro.")
 
