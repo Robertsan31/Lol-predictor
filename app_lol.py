@@ -22,21 +22,17 @@ def treinar_super_modelo_multimercados():
     df_lck = df_lol[df_lol['league'] == 'LCK'].copy()
     df_times = df_lck[df_lck['position'] == 'team'].copy()
     
-    # 1. Usando colunas oficiais + coluna 'game' (Número do Mapa)
     cols = ['gameid', 'date', 'teamname', 'side', 'result', 'patch', 'playoffs', 'dragons', 'gamelength', 'game']
     df_limpo = df_times[cols].copy()
     
-    # Limpeza e conversão
     df_limpo['dragons'] = pd.to_numeric(df_limpo['dragons'], errors='coerce').fillna(0)
     df_limpo['game'] = pd.to_numeric(df_limpo['game'], errors='coerce').fillna(1)
     
-    # A Mágica do Pandas
     df_limpo['total_dragons_partida'] = df_limpo.groupby('gameid')['dragons'].transform('sum')
     df_limpo['opp_dragons'] = df_limpo['total_dragons_partida'] - df_limpo['dragons']
     
     df_limpo['over_4_dragons'] = (df_limpo['total_dragons_partida'] > 4).astype(int)
     df_limpo['mais_dragons'] = (df_limpo['dragons'] > df_limpo['opp_dragons']).astype(int)
-    df_limpo['jogo_longo'] = (df_limpo['gamelength'] > 1920).astype(int)
     
     df_limpo['date'] = pd.to_datetime(df_limpo['date'], utc=True)
     df_limpo = df_limpo.sort_values('date')
@@ -44,7 +40,6 @@ def treinar_super_modelo_multimercados():
     df_limpo['patch'] = df_limpo['patch'].astype(str).str.extract(r'(\d+\.\d+)')[0]
     df_limpo['patch'] = df_limpo['patch'].str.replace('^16\.', '26.', regex=True)
     
-    # Histórico Dinâmico
     for col in ['result', 'mais_dragons', 'dragons']:
         df_limpo[f'media_{col}'] = df_limpo.groupby('teamname')[col].transform(lambda x: x.shift(1).expanding().mean()).fillna(0.5)
 
@@ -52,16 +47,14 @@ def treinar_super_modelo_multimercados():
     df_vermelho = df_limpo[df_limpo['side'] == 'Red'].copy().add_suffix('_red').rename(columns={'gameid_red': 'gameid'})
     df_p = pd.merge(df_azul, df_vermelho, on='gameid').dropna()
 
-    # 2. Features da IA (Agora inclui Playoffs e o Número do Mapa)
     features = ['media_result_blue', 'media_mais_dragons_blue', 'media_dragons_blue',
                 'media_result_red', 'media_mais_dragons_red', 'media_dragons_red', 'playoffs_blue', 'game_blue']
     X = df_p[features]
     
-    # 3. Treinando os 4 Cérebros
+    # Treinando apenas os cérebros fixos aqui
     m_vit = RandomForestClassifier(n_estimators=200, random_state=42).fit(X, df_p['result_blue'])
     m_dra = RandomForestClassifier(n_estimators=200, random_state=42).fit(X, df_p['mais_dragons_blue'])
     m_tot_dra = RandomForestClassifier(n_estimators=200, random_state=42).fit(X, df_p['over_4_dragons_blue'])
-    m_tempo = RandomForestClassifier(n_estimators=200, random_state=42).fit(X, df_p['jogo_longo_blue'])
     
     importancias = m_vit.feature_importances_
     nomes_variaveis = ['Blue - Win Rate', 'Blue - +Dragões', 'Blue - Média Dragões',
@@ -72,22 +65,26 @@ def treinar_super_modelo_multimercados():
     lista_patches = sorted(df_limpo['patch'].dropna().unique(), reverse=True)
     ultimos_dados = df_limpo.groupby(['teamname', 'patch']).last().reset_index()
     
-    return lista_times, lista_patches, ultimos_dados, m_vit, m_dra, m_tot_dra, m_tempo, df_peso_ia
+    # Devolvendo a base de dados (X, df_p) para o modelo de tempo dinâmico
+    return lista_times, lista_patches, ultimos_dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X, df_p
 
 with st.spinner("Conectando os 4 Cérebros da IA..."):
-    times, patches, dados, m_vit, m_dra, m_tot_dra, m_tempo, df_peso_ia = treinar_super_modelo_multimercados()
+    times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas = treinar_super_modelo_multimercados()
 
 # --- FRONT-END ---
-st.title("🏆 LoL Predictor PRO (v5.1 - MasterMind)")
+st.title("🏆 LoL Predictor PRO (v5.2 - Dynamic Engine)")
 st.markdown("---")
 
 aba1, aba2, aba3 = st.tabs(["🤖 Previsões & Raio-X", "💰 Gestão de Banca", "📊 Diário de Apostas"])
 
 with aba1:
-    col_p, col_m, col_map = st.columns(3)
-    p_atual = col_p.selectbox("🛠️ Em qual Patch será o jogo?", patches)
-    is_playoff = col_m.checkbox("⚠️ É uma MD5 (Playoffs)?")
-    num_mapa = col_map.selectbox("📍 Número do Mapa", [1, 2, 3, 4, 5])
+    col_p, col_m, col_map, col_t = st.columns(4)
+    p_atual = col_p.selectbox("🛠️ Patch", patches)
+    is_playoff = col_m.checkbox("⚠️ MD5 (Playoffs)?")
+    num_mapa = col_map.selectbox("📍 Nº do Mapa", [1, 2, 3, 4, 5])
+    
+    # NOVIDADE: A Linha de Tempo que você viu na casa de apostas!
+    linha_tempo_casa = col_t.number_input("⏱️ Linha de Tempo (Min)", min_value=20.0, max_value=50.0, value=32.5, step=0.5, help="Digite a linha exata de Over/Under da Casa de Apostas (Ex: 30.5)")
     st.markdown("---")
     
     c1, c2 = st.columns(2)
@@ -104,18 +101,24 @@ with aba1:
             if s_a.empty: s_a = dados[dados['teamname'] == t_azul].iloc[[-1]]
             if s_r.empty: s_r = dados[dados['teamname'] == t_red].iloc[[-1]]
             
-            # IA lendo as 8 informações
             input_ia = [[s_a['media_result'].values[0], s_a['media_mais_dragons'].values[0], s_a['media_dragons'].values[0],
                          s_r['media_result'].values[0], s_r['media_mais_dragons'].values[0], s_r['media_dragons'].values[0],
                          1 if is_playoff else 0, num_mapa]]
             
+            # MAGIA AQUI: Treinando a IA de Tempo na hora com base no que a casa pediu!
+            limite_segundos = linha_tempo_casa * 60
+            df_partidas_local = df_partidas.copy()
+            df_partidas_local['alvo_tempo'] = (df_partidas_local['gamelength_blue'] > limite_segundos).astype(int)
+            m_tempo_dinamico = RandomForestClassifier(n_estimators=100, random_state=42).fit(X_historico, df_partidas_local['alvo_tempo'])
+            prob_t_dinamica = m_tempo_dinamico.predict_proba(input_ia)[0]
+            
             st.session_state['analise_salva'] = True
             st.session_state['dados_analise'] = {
-                't_azul': t_azul, 't_red': t_red, 'mapa': num_mapa,
+                't_azul': t_azul, 't_red': t_red, 'mapa': num_mapa, 'linha_t': linha_tempo_casa,
                 'prob_v': m_vit.predict_proba(input_ia)[0],
                 'prob_d': m_dra.predict_proba(input_ia)[0],
                 'prob_td': m_tot_dra.predict_proba(input_ia)[0],
-                'prob_t': m_tempo.predict_proba(input_ia)[0],
+                'prob_t': prob_t_dinamica,
                 'peso_ia': df_peso_ia
             }
 
@@ -136,10 +139,10 @@ with aba1:
         d3.metric(f"Mais Dragões ({mem['t_azul']})", f"{mem['prob_d'][1]*100:.1f}%")
         d4.metric("Mais Dragões (Red/Empate)", f"{mem['prob_d'][0]*100:.1f}%")
         
-        st.subheader("⏱️ Mercado de Tempo")
+        st.subheader("⏱️ Mercado de Tempo (Dinâmico)")
         t1, t2 = st.columns(2)
-        t1.metric("Jogo Longo (Over 32 min)", f"{mem['prob_t'][1]*100:.1f}%")
-        t2.metric("Jogo Curto (Under 32 min)", f"{mem['prob_t'][0]*100:.1f}%")
+        t1.metric(f"Over {mem['linha_t']} min", f"{mem['prob_t'][1]*100:.1f}%")
+        t2.metric(f"Under {mem['linha_t']} min", f"{mem['prob_t'][0]*100:.1f}%")
 
         st.markdown("---")
         st.subheader("🔍 Raio-X do Vencedor")
