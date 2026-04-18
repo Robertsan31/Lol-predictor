@@ -11,7 +11,9 @@ if 'diario_apostas' not in st.session_state:
     st.session_state['diario_apostas'] = pd.DataFrame(columns=[
         'Data', 'Mercado', 'Confronto', 'Odd', 'Stake (R$)', 'Status', 'Retorno (R$)'
     ])
-
+# NOVA MEMÓRIA ADICIONADA AQUI:
+if 'analise_salva' not in st.session_state:
+    st.session_state['analise_salva'] = False
 @st.cache_data
 def treinar_super_modelo_multimercados():
     arquivos = ['2025_LoL_esports_match_data_from_OraclesElixir.csv', '2026_LoL_esports_match_data_from_OraclesElixir.csv']
@@ -107,29 +109,43 @@ with aba1:
                          s_r['media_result'].values[0], s_r['media_mais_dragons'].values[0], s_r['media_dragons'].values[0],
                          1 if is_playoff else 0]]
             
-            prob_v = m_vit.predict_proba(input_ia)[0]
-            prob_d = m_dra.predict_proba(input_ia)[0]
-            prob_td = m_tot_dra.predict_proba(input_ia)[0]
-            prob_t = m_tempo.predict_proba(input_ia)[0]
-            
-            st.success("Análise tática e de objetivos concluída!")
-            
-            st.subheader("🎯 Mercado Principal (Vencedor)")
-            col_a, col_b = st.columns(2)
-            col_a.metric(label=f"Vitória - {t_azul}", value=f"{prob_v[1]*100:.1f}%")
-            col_b.metric(label=f"Vitória - {t_red}", value=f"{prob_v[0]*100:.1f}%")
-            
-            st.subheader("🐲 Mercado de Dragões")
-            d1, d2, d3, d4 = st.columns(4)
-            d1.metric("Over 4.5 Dragões", f"{prob_td[1]*100:.1f}%")
-            d2.metric("Under 4.5 Dragões", f"{prob_td[0]*100:.1f}%")  # O lado Under!
-            d3.metric("Mais Dragões (Azul)", f"{prob_d[1]*100:.1f}%")
-            d4.metric("Mais Dragões (Red/Empate)", f"{prob_d[0]*100:.1f}%")
-            
-            st.subheader("⏱️ Mercado de Tempo")
-            t1, t2 = st.columns(2)
-            t1.metric("Jogo Longo (Over 32 min)", f"{prob_t[1]*100:.1f}%")
-            t2.metric("Jogo Curto (Under 32 min)", f"{prob_t[0]*100:.1f}%") # O lado Under!
+            # SALVANDO NA MEMÓRIA DO NAVEGADOR
+            st.session_state['analise_salva'] = True
+            st.session_state['dados_analise'] = {
+                't_azul': t_azul, 't_red': t_red,
+                'prob_v': m_vit.predict_proba(input_ia)[0],
+                'prob_d': m_dra.predict_proba(input_ia)[0],
+                'prob_td': m_tot_dra.predict_proba(input_ia)[0],
+                'prob_t': m_tempo.predict_proba(input_ia)[0],
+                'peso_ia': df_peso_ia
+            }
+
+    # SE TIVER ALGO NA MEMÓRIA, ELE MOSTRA NA TELA (Mesmo mudando de aba!)
+    if st.session_state['analise_salva']:
+        mem = st.session_state['dados_analise']
+        
+        st.success("Análise tática e de objetivos concluída!")
+        
+        st.subheader("🎯 Mercado Principal (Vencedor)")
+        col_a, col_b = st.columns(2)
+        col_a.metric(label=f"Vitória - {mem['t_azul']}", value=f"{mem['prob_v'][1]*100:.1f}%")
+        col_b.metric(label=f"Vitória - {mem['t_red']}", value=f"{mem['prob_v'][0]*100:.1f}%")
+        
+        st.subheader("🐲 Mercado de Dragões")
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("Over 4.5 Dragões", f"{mem['prob_td'][1]*100:.1f}%")
+        d2.metric("Under 4.5 Dragões", f"{mem['prob_td'][0]*100:.1f}%")
+        d3.metric(f"Mais Dragões ({mem['t_azul']})", f"{mem['prob_d'][1]*100:.1f}%")
+        d4.metric("Mais Dragões (Red/Empate)", f"{mem['prob_d'][0]*100:.1f}%")
+        
+        st.subheader("⏱️ Mercado de Tempo")
+        t1, t2 = st.columns(2)
+        t1.metric("Jogo Longo (Over 32 min)", f"{mem['prob_t'][1]*100:.1f}%")
+        t2.metric("Jogo Curto (Under 32 min)", f"{mem['prob_t'][0]*100:.1f}%")
+
+        st.markdown("---")
+        st.subheader("🔍 Raio-X do Vencedor")
+        st.bar_chart(mem['peso_ia'])
 
 with aba2:
     st.subheader("Calculadora Avançada de Stake (Com Trava de Plataforma)")
