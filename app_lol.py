@@ -14,8 +14,9 @@ if 'diario_apostas' not in st.session_state:
 if 'analise_salva' not in st.session_state:
     st.session_state['analise_salva'] = False
 
-@st.cache_data
-def treinar_super_modelo_multimercados():
+# UPGRADE: cache_resource é mais seguro para modelos de Machine Learning!
+@st.cache_resource 
+def treinar_motor_dinamico_v5(): # NOME NOVO PARA RESETAR O CACHE!
     arquivos = ['2025_LoL_esports_match_data_from_OraclesElixir.csv', '2026_LoL_esports_match_data_from_OraclesElixir.csv']
     df_lol = pd.concat([pd.read_csv(arq, low_memory=False) for arq in arquivos], ignore_index=True)
     
@@ -51,7 +52,6 @@ def treinar_super_modelo_multimercados():
                 'media_result_red', 'media_mais_dragons_red', 'media_dragons_red', 'playoffs_blue', 'game_blue']
     X = df_p[features]
     
-    # Treinando apenas os cérebros fixos aqui
     m_vit = RandomForestClassifier(n_estimators=200, random_state=42).fit(X, df_p['result_blue'])
     m_dra = RandomForestClassifier(n_estimators=200, random_state=42).fit(X, df_p['mais_dragons_blue'])
     m_tot_dra = RandomForestClassifier(n_estimators=200, random_state=42).fit(X, df_p['over_4_dragons_blue'])
@@ -65,11 +65,11 @@ def treinar_super_modelo_multimercados():
     lista_patches = sorted(df_limpo['patch'].dropna().unique(), reverse=True)
     ultimos_dados = df_limpo.groupby(['teamname', 'patch']).last().reset_index()
     
-    # Devolvendo a base de dados (X, df_p) para o modelo de tempo dinâmico
     return lista_times, lista_patches, ultimos_dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X, df_p
 
-with st.spinner("Conectando os 4 Cérebros da IA..."):
-    times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas = treinar_super_modelo_multimercados()
+with st.spinner("Construindo o novo Motor Dinâmico..."):
+    # Chamando a função com o nome NOVO:
+    times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas = treinar_motor_dinamico_v5()
 
 # --- FRONT-END ---
 st.title("🏆 LoL Predictor PRO (v5.2 - Dynamic Engine)")
@@ -83,7 +83,6 @@ with aba1:
     is_playoff = col_m.checkbox("⚠️ MD5 (Playoffs)?")
     num_mapa = col_map.selectbox("📍 Nº do Mapa", [1, 2, 3, 4, 5])
     
-    # NOVIDADE: A Linha de Tempo que você viu na casa de apostas!
     linha_tempo_casa = col_t.number_input("⏱️ Linha de Tempo (Min)", min_value=20.0, max_value=50.0, value=32.5, step=0.5, help="Digite a linha exata de Over/Under da Casa de Apostas (Ex: 30.5)")
     st.markdown("---")
     
@@ -105,7 +104,7 @@ with aba1:
                          s_r['media_result'].values[0], s_r['media_mais_dragons'].values[0], s_r['media_dragons'].values[0],
                          1 if is_playoff else 0, num_mapa]]
             
-            # MAGIA AQUI: Treinando a IA de Tempo na hora com base no que a casa pediu!
+            # MAGIA: Treinando a IA de Tempo na hora com base no que a casa pediu!
             limite_segundos = linha_tempo_casa * 60
             df_partidas_local = df_partidas.copy()
             df_partidas_local['alvo_tempo'] = (df_partidas_local['gamelength_blue'] > limite_segundos).astype(int)
