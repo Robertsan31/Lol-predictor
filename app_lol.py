@@ -245,39 +245,6 @@ with aba3:
             st.image(imagem, caption="Bilhete detectado para leitura", width=250)
             
             if st.button("🪄 Ler Bilhete e Salvar na Planilha", type="primary"):
-                with st.spinner("A investigar os modelos da IA e a ler a imagem..."):
-                    try:
-                        # --- O RASTREADOR IMPLACÁVEL ---
-                        modelo_ideal = None
-                        modelos_disponiveis = []
-                        
-                        # Pergunta ao Google quais modelos a sua chave pode usar
-                        for m in genai.list_models():
-                            if 'generateContent' in m.supported_generation_methods:
-                                modelos_disponiveis.append(m.name)
-                                # Pesca o modelo certo (Flash, Pro ou Vision)
-                                if 'flash' in m.name or 'vision' in m.name or '1.5' in m.name:
-                                    modelo_ideal = m.name
-                                    
-                        # Se por acaso não achar os nomes novos, usa o último da lista
-                        if modelo_ideal is None:
-                            if modelos_disponiveis:
-                                modelo_ideal = modelos_disponiveis[-1]
-                            else:
-                                modelo_ideal = 'gemini-1.5-flash'
-                                
-                        modelo_visao = genai.GenerativeModel(modelo_ideal)
-                        
-                        prompt = """
-                        És um assistente de extração de dados. Lê esta imagem de um bilhete de aposta desportiva.
-                        Extrai a informação e devolve APENAS um formato JSON exato. Não escrevas mais nada além do JSON.
-                        Estrutura obrigatória:
-                        {"Mercado": "Texto", "Confronto": "Texto", "Odd": numero_decimal, "Stake": numero_decimal}
-                        Se não encontrares algo, coloca 0.0 para números ou 'Desconhecido' para textos.
-                        """
-                        resposta = modelo_visao.generate_content([prompt, imagem])
-                        
-                       if st.button("🪄 Ler Bilhete e Salvar na Planilha", type="primary"):
                 with st.spinner("A analisar todas as apostas do print..."):
                     try:
                         # 1. Busca o modelo disponível
