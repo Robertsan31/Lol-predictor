@@ -4,6 +4,13 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from datetime import datetime
 
+# Tentar ligar ao cérebro do Gemini em segurança
+try:
+    genai.configure(api_key=st.secrets["AIzaSyCIfkRS6tIVQt7eaRBej4RAvWK2Q44jJuc"])
+    api_ativa = True
+except:
+    api_ativa = False
+    
 st.set_page_config(page_title="LoL Predictor PRO", layout="wide")
 
 # --- MEMÓRIA DO DIÁRIO DE APOSTAS E DA ANÁLISE ---
@@ -207,7 +214,53 @@ with aba2:
             st.error(f"🛑 **EV Negativo ({ev_percentual:.2f}%).** A longo prazo, apostar nessa Odd te fará perder dinheiro.")
 
 with aba3:
-    st.subheader("📊 Seu Diário de Apostas")
+    st.subheader("📊 O Seu Diário de Apostas")
+    
+    # --- NOVO: SCANNER DE BILHETES ---
+    st.markdown("### 📸 Scanner Automático de Bilhetes (OCR)")
+    if not api_ativa:
+        st.warning("⚠️ Chave do Gemini não encontrada nos Secrets do Streamlit.")
+    else:
+        imagem_upload = st.file_uploader("Arraste ou carregue o ecrã (print) da sua aposta aqui", type=['png', 'jpg', 'jpeg'])
+        
+        if imagem_upload is not None:
+            imagem = Image.open(imagem_upload)
+            st.image(imagem, caption="Bilhete detetado", width=250)
+            
+            if st.button("🪄 Ler Bilhete e Salvar na Planilha", type="primary"):
+                with st.spinner("A IA está a analisar o talão..."):
+                    try:
+                        # Chama o modelo de visão rápida do Gemini
+                        modelo_visao = genai.GenerativeModel('gemini-1.5-flash')
+                        prompt = """
+                        És um assistente de extração de dados. Lê esta imagem de um bilhete de aposta desportiva.
+                        Extrai a informação e devolve APENAS um formato JSON exato. Não escrevas mais nada.
+                        Estrutura obrigatória:
+                        {"Mercado": "Texto", "Confronto": "Texto", "Odd": numero_decimal, "Stake": numero_decimal}
+                        Se não encontrares algo, coloca 0.0 para números ou 'Desconhecido' para textos.
+                        """
+                        resposta = modelo_visao.generate_content([prompt, imagem])
+                        
+                        # Limpa a resposta para garantir que é um JSON puro
+                        texto_json = resposta.text.replace('```json', '').replace('```', '').strip()
+                        dados = json.loads(texto_json)
+                        
+                        # Adiciona à memória
+                        nova_aposta = pd.DataFrame([{
+                            'Data': datetime.now().strftime("%d/%m/%Y"),
+                            'Mercado': dados.get('Mercado', 'Automático'),
+                            'Confronto': dados.get('Confronto', 'Automático'),
+                            'Odd': float(dados.get('Odd', 0.0)),
+                            'Stake (R$)': float(dados.get('Stake', 0.0)),
+                            'Status': 'Pendente',
+                            'Retorno (R$)': 0.0
+                        }])
+                        st.session_state['diario_apostas'] = pd.concat([st.session_state['diario_apostas'], nova_aposta], ignore_index=True)
+                        st.success("✅ Bilhete lido com sucesso e adicionado à tabela abaixo!")
+                    except Exception as e:
+                        st.error(f"Não foi possível ler o bilhete com clareza. Erro: {e}")
+    
+    st.markdown("---")
     st.write("Dê dois cliques na coluna **Status** para mudar de 'Pendente' para 'Ganha' ou 'Perdida'.")
     
     df_editado = st.data_editor(
@@ -231,7 +284,20 @@ with aba3:
     st.session_state['diario_apostas'] = df_editado
     lucro_total = df_editado['Retorno (R$)'].sum()
     st.markdown("---")
-    if lucro_total > 0:
-        st.metric("Lucro Total (PNL)", f"R$ {lucro_total:.2f}", delta="Positivo")
-    else:
-        st.metric("Lucro Total (PNL)", f"R$ {lucro_total:.2f}", delta="Negativo", delta_color="inverse")
+    
+    col_lucro, col_botao = st.columns(2)
+    with col_lucro:
+        if lucro_total > 0:
+            st.metric("Lucro Total (PNL)", f"R$ {lucro_total:.2f}", delta="Positivo")
+        else:
+            st.metric("Lucro Total (PNL)", f"R$ {lucro_total:.2f}", delta="Negativo", delta_color="inverse")
+            
+    with col_botao:
+        st.write("") 
+        csv = df_editado.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Baixar Backup do Diário (.csv)",
+            data=csv,
+            file_name=f"diario_apostas_{datetime.now().strftime('%d_%m_%Y')}.csv",
+            mime="text/csv",
+        )
