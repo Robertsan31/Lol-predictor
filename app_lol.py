@@ -241,7 +241,7 @@ with aba3:
                         img_processada = imagem.convert('RGB')
                         
                         # 2. Prepara o modelo
-                        modelo_visao = genai.GenerativeModel('gemini-1.5-flash')
+                        modelo_visao = genai.GenerativeModel('gemini-1.5-flash-latest')
                         
                         prompt_ocr = """
                         És um leitor ótico (OCR) de apostas. Lê os dados deste print.
