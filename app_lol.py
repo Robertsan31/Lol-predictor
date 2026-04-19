@@ -245,17 +245,10 @@ with aba3:
             st.image(imagem, caption="Bilhete detectado para leitura", width=250)
             
             if st.button("🪄 Ler Bilhete e Salvar na Planilha", type="primary"):
-                with st.spinner("A procurar o melhor modelo de IA e ler o bilhete..."):
+                with st.spinner("A conectar com os olhos da IA do Google..."):
                     try:
-                        # MAGIA AQUI: O Caçador de Modelos Automático (Resolve o erro 404)
-                        modelo_escolhido = 'gemini-pro-vision' # Backup seguro
-                        for m in genai.list_models():
-                            if 'generateContent' in m.supported_generation_methods:
-                                if '1.5-flash' in m.name:
-                                    modelo_escolhido = m.name
-                                    break # Encontrou o melhor e mais rápido, para a busca!
-                        
-                        modelo_visao = genai.GenerativeModel(modelo_escolhido)
+                        # Chamando o modelo OFICIAL e mais atual para leitura de imagens
+                        modelo_visao = genai.GenerativeModel('gemini-1.5-flash')
                         
                         prompt = """
                         És um assistente de extração de dados. Lê esta imagem de um bilhete de aposta desportiva.
@@ -281,10 +274,9 @@ with aba3:
                             'Retorno (R$)': 0.0
                         }])
                         st.session_state['diario_apostas'] = pd.concat([st.session_state['diario_apostas'], nova_aposta], ignore_index=True)
-                        st.success(f"✅ Lançamento automático efetuado! (Usando o modelo: {modelo_escolhido})")
+                        st.success("✅ Bilhete lido com sucesso e adicionado à tabela abaixo!")
                     except Exception as e:
                         st.error(f"Não foi possível ler o bilhete. Verifique se a foto está legível. Erro Técnico: {e}")
-    
     st.markdown("---")
     st.write("Dê dois cliques na coluna **Status** para mudar de 'Pendente' para 'Ganha' ou 'Perdida'.")
     
