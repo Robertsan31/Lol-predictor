@@ -277,32 +277,59 @@ with aba3:
                         """
                         resposta = modelo_visao.generate_content([prompt, imagem])
                         
-                        # Limpa a resposta para garantir que é um JSON puro
+                       if st.button("🪄 Ler Bilhete e Salvar na Planilha", type="primary"):
+                with st.spinner("A analisar todas as apostas do print..."):
+                    try:
+                        # 1. Busca o modelo disponível
+                        modelo_ideal = 'gemini-1.5-flash'
+                        modelo_visao = genai.GenerativeModel(modelo_ideal)
+                        
+                        # 2. Prompt melhorado para Múltiplas Apostas e melhor identificação
+                        prompt = """
+                        És um analista de apostas experiente. Lê esta imagem e extrai TODAS as apostas individuais que encontrares.
+                        Para cada aposta, identifica:
+                        - Mercado: Ex: 'Mais de 4.5', 'Vencedor', 'Menos de 32.5 min'.
+                        - Confronto: O nome do time ou o jogo. Se houver apenas um time (ex: 'Hanwha Life'), usa esse nome.
+                        - Odd: O número decimal ao lado do mercado.
+                        - Stake: O valor em R$ após a palavra 'Aposta'.
+                        
+                        Retorna obrigatoriamente uma LISTA de objetos JSON. Exemplo:
+                        [
+                          {"Mercado": "Vencedor", "Confronto": "Hanwha Life", "Odd": 2.50, "Stake": 6.44},
+                          {"Mercado": "Mais de 4.5", "Confronto": "Desconhecido", "Odd": 1.72, "Stake": 1.45}
+                        ]
+                        Retorna apenas o JSON puro, sem textos adicionais.
+                        """
+                        
+                        resposta = modelo_visao.generate_content([prompt, imagem])
                         texto_json = resposta.text.replace('```json', '').replace('```', '').strip()
-                        dados_brutos = json.loads(texto_json)
+                        lista_apostas = json.loads(texto_json)
                         
-                        # --- CORREÇÃO DO ERRO DA LISTA ---
-                        # Se a IA enviar [ {dados} ] em vez de {dados}, nós pegamos o primeiro item.
-                        if isinstance(dados_brutos, list):
-                            dados = dados_brutos[0] if len(dados_brutos) > 0 else {}
-                        else:
-                            dados = dados_brutos
+                        # Se a IA devolver apenas um objeto, transformamos em lista para o loop funcionar
+                        if not isinstance(lista_apostas, list):
+                            lista_apostas = [lista_apostas]
+
+                        # 3. LOOP MÁGICO: Salva cada aposta encontrada na planilha
+                        novas_linhas = []
+                        for dados in lista_apostas:
+                            novas_linhas.append({
+                                'Data': datetime.now().strftime("%d/%m/%Y"),
+                                'Mercado': dados.get('Mercado', 'Automático'),
+                                'Confronto': dados.get('Confronto', 'Automático'),
+                                'Odd': float(dados.get('Odd', 0.0)),
+                                'Stake (R$)': float(dados.get('Stake', 0.0)),
+                                'Status': 'Pendente',
+                                'Retorno (R$)': 0.0
+                            })
                         
-                        # Adiciona à memória
-                        nova_aposta = pd.DataFrame([{
-                            'Data': datetime.now().strftime("%d/%m/%Y"),
-                            'Mercado': dados.get('Mercado', 'Automático'),
-                            'Confronto': dados.get('Confronto', 'Automático'),
-                            'Odd': float(dados.get('Odd', 0.0)),
-                            'Stake (R$)': float(dados.get('Stake', 0.0)),
-                            'Status': 'Pendente',
-                            'Retorno (R$)': 0.0
-                        }])
-                        st.session_state['diario_apostas'] = pd.concat([st.session_state['diario_apostas'], nova_aposta], ignore_index=True)
-                        st.success(f"✅ Bilhete lido com sucesso! (IA usada: {modelo_ideal})")
+                        # Atualiza a tabela de uma vez só
+                        df_novos = pd.DataFrame(novas_linhas)
+                        st.session_state['diario_apostas'] = pd.concat([st.session_state['diario_apostas'], df_novos], ignore_index=True)
+                        
+                        st.success(f"✅ Sucesso! {len(novas_linhas)} apostas foram detectadas e adicionadas.")
                     
                     except Exception as e:
-                        st.error(f"Erro Técnico ao processar o texto da IA: {e}")
+                        st.error(f"Erro ao processar imagem: {e}")
     st.markdown("---")
     st.write("Dê dois cliques na coluna **Status** para mudar de 'Pendente' para 'Ganha' ou 'Perdida'.")
     
