@@ -3,20 +3,24 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from datetime import datetime
+import json
+from PIL import Image
 
-# Tentar ligar ao cérebro do Gemini com diagnóstico de erro
+# --- IMPORTAÇÕES NOVAS PARA A IA LER IMAGENS ---
+import google.generativeai as genai
+
+st.set_page_config(page_title="LoL Predictor PRO", layout="wide")
+
+# --- CONECTANDO O CÉREBRO DO GEMINI (SCANNER) ---
 api_ativa = False
 if "GEMINI_API_KEY" in st.secrets:
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         api_ativa = True
     except Exception as e:
-        st.error(f"Erro ao configurar IA: {e}")
+        st.error(f"Erro ao configurar IA de visão: {e}")
 else:
-    # Isso vai aparecer no seu log do Streamlit para te ajudar
-    print("Atenção: GEMINI_API_KEY não encontrada nos Secrets")
-    
-st.set_page_config(page_title="LoL Predictor PRO", layout="wide")
+    print("Atenção: GEMINI_API_KEY não encontrada nos Secrets do Streamlit.")
 
 # --- MEMÓRIA DO DIÁRIO DE APOSTAS E DA ANÁLISE ---
 if 'diario_apostas' not in st.session_state:
@@ -26,9 +30,9 @@ if 'diario_apostas' not in st.session_state:
 if 'analise_salva' not in st.session_state:
     st.session_state['analise_salva'] = False
 
-# UPGRADE: cache_resource é mais seguro para modelos de Machine Learning!
+# --- MOTOR DA INTELIGÊNCIA ARTIFICIAL ---
 @st.cache_resource 
-def treinar_motor_dinamico_v5(): # NOME NOVO PARA RESETAR O CACHE!
+def treinar_motor_dinamico_v5():
     arquivos = ['2025_LoL_esports_match_data_from_OraclesElixir.csv', '2026_LoL_esports_match_data_from_OraclesElixir.csv']
     df_lol = pd.concat([pd.read_csv(arq, low_memory=False) for arq in arquivos], ignore_index=True)
     
@@ -79,23 +83,22 @@ def treinar_motor_dinamico_v5(): # NOME NOVO PARA RESETAR O CACHE!
     
     return lista_times, lista_patches, ultimos_dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X, df_p
 
-with st.spinner("Construindo o novo Motor Dinâmico..."):
-    # Chamando a função com o nome NOVO:
+with st.spinner("Construindo o novo Motor Dinâmico e Conectando Scanner..."):
     times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas = treinar_motor_dinamico_v5()
 
 # --- FRONT-END ---
-st.title("🏆 LoL Predictor PRO (v5.2 - Dynamic Engine)")
+st.title("🏆 LoL Predictor PRO (v5.3 - Vision Engine)")
 st.markdown("---")
 
 aba1, aba2, aba3 = st.tabs(["🤖 Previsões & Raio-X", "💰 Gestão de Banca", "📊 Diário de Apostas"])
 
+# --- ABA 1: PREVISÕES ---
 with aba1:
     col_p, col_m, col_map, col_t = st.columns(4)
     p_atual = col_p.selectbox("🛠️ Patch", patches)
     is_playoff = col_m.checkbox("⚠️ MD5 (Playoffs)?")
     num_mapa = col_map.selectbox("📍 Nº do Mapa", [1, 2, 3, 4, 5])
-    
-    linha_tempo_casa = col_t.number_input("⏱️ Linha de Tempo (Min)", min_value=20.0, max_value=50.0, value=32.5, step=0.5, help="Digite a linha exata de Over/Under da Casa de Apostas (Ex: 30.5)")
+    linha_tempo_casa = col_t.number_input("⏱️ Linha de Tempo (Min)", min_value=20.0, max_value=50.0, value=32.5, step=0.5)
     st.markdown("---")
     
     c1, c2 = st.columns(2)
@@ -116,7 +119,7 @@ with aba1:
                          s_r['media_result'].values[0], s_r['media_mais_dragons'].values[0], s_r['media_dragons'].values[0],
                          1 if is_playoff else 0, num_mapa]]
             
-            # MAGIA: Treinando a IA de Tempo na hora com base no que a casa pediu!
+            # Treinamento Dinâmico de Tempo
             limite_segundos = linha_tempo_casa * 60
             df_partidas_local = df_partidas.copy()
             df_partidas_local['alvo_tempo'] = (df_partidas_local['gamelength_blue'] > limite_segundos).astype(int)
@@ -135,7 +138,6 @@ with aba1:
 
     if st.session_state['analise_salva']:
         mem = st.session_state['dados_analise']
-        
         st.success(f"Análise do Mapa {mem['mapa']} concluída!")
         
         st.subheader("🎯 Mercado Principal (Vencedor)")
@@ -159,6 +161,7 @@ with aba1:
         st.subheader("🔍 Raio-X do Vencedor")
         st.bar_chart(mem['peso_ia'])
 
+# --- ABA 2: CALCULADORA KELLY ---
 with aba2:
     st.subheader("Calculadora Avançada de Stake (Com Trava de Plataforma)")
     col1, col2 = st.columns(2)
@@ -188,8 +191,7 @@ with aba2:
             aposta_sugerida = (banca * f_star) / divisor_kelly
             
             if aposta_sugerida < aposta_minima:
-                st.warning(f"⚠️ **Aviso de Gestão:** A aposta matemática ideal seria de **R$ {aposta_sugerida:.2f}**, que é menor que o piso da plataforma (R$ {aposta_minima:.2f}).")
-                st.write("💡 *Recomendação: Não force a aposta para R$ 0.50, pois isso quebra a sua segurança. Fique de fora deste mercado ou aumente o risco (Agressivo) apenas se confiar muito na entrada.*")
+                st.warning(f"⚠️ **Aviso de Gestão:** A aposta ideal seria de **R$ {aposta_sugerida:.2f}**, que é menor que o piso da plataforma (R$ {aposta_minima:.2f}). Fique de fora ou mude o perfil de risco com cautela.")
             else:
                 st.success("✅ **Aposta de Valor (+EV) Encontrada e Liberada!**")
                 m1, m2, m3 = st.columns(3)
@@ -198,7 +200,7 @@ with aba2:
                 m3.metric("Apostar em Dinheiro", f"R$ {aposta_sugerida:.2f}")
                 
                 st.markdown("---")
-                st.write("📝 **Salvar no Diário**")
+                st.write("📝 **Salvar no Diário (Manualmente)**")
                 c_merc, c_nome = st.columns(2)
                 mercado_nome = c_merc.text_input("Mercado (Ex: Over 4.5 Drags / T1 Ganha)")
                 confronto_nome = c_nome.text_input("Confronto (Ex: T1 vs GenG)")
@@ -214,28 +216,27 @@ with aba2:
                         'Retorno (R$)': 0.0
                     }])
                     st.session_state['diario_apostas'] = pd.concat([st.session_state['diario_apostas'], nova_aposta], ignore_index=True)
-                    st.toast("Aposta salva com sucesso no Diário!")
+                    st.toast("Aposta salva com sucesso!")
         else:
-            st.error(f"🛑 **EV Negativo ({ev_percentual:.2f}%).** A longo prazo, apostar nessa Odd te fará perder dinheiro.")
+            st.error(f"🛑 **EV Negativo ({ev_percentual:.2f}%).**")
 
+# --- ABA 3: DIÁRIO E SCANNER OCR ---
 with aba3:
     st.subheader("📊 O Seu Diário de Apostas")
     
-    # --- NOVO: SCANNER DE BILHETES ---
     st.markdown("### 📸 Scanner Automático de Bilhetes (OCR)")
     if not api_ativa:
-        st.warning("⚠️ Chave do Gemini não encontrada nos Secrets do Streamlit.")
+        st.warning("⚠️ Chave do Gemini não encontrada nos Secrets do Streamlit. Vá as definições da sua app na nuvem e adicione a GEMINI_API_KEY para libertar o scanner.")
     else:
         imagem_upload = st.file_uploader("Arraste ou carregue o ecrã (print) da sua aposta aqui", type=['png', 'jpg', 'jpeg'])
         
         if imagem_upload is not None:
             imagem = Image.open(imagem_upload)
-            st.image(imagem, caption="Bilhete detetado", width=250)
+            st.image(imagem, caption="Bilhete detetado pela IA", width=250)
             
             if st.button("🪄 Ler Bilhete e Salvar na Planilha", type="primary"):
-                with st.spinner("A IA está a analisar o talão..."):
+                with st.spinner("A IA está a dissecar o talão..."):
                     try:
-                        # Chama o modelo de visão rápida do Gemini
                         modelo_visao = genai.GenerativeModel('gemini-1.5-flash')
                         prompt = """
                         És um assistente de extração de dados. Lê esta imagem de um bilhete de aposta desportiva.
@@ -246,11 +247,9 @@ with aba3:
                         """
                         resposta = modelo_visao.generate_content([prompt, imagem])
                         
-                        # Limpa a resposta para garantir que é um JSON puro
                         texto_json = resposta.text.replace('```json', '').replace('```', '').strip()
                         dados = json.loads(texto_json)
                         
-                        # Adiciona à memória
                         nova_aposta = pd.DataFrame([{
                             'Data': datetime.now().strftime("%d/%m/%Y"),
                             'Mercado': dados.get('Mercado', 'Automático'),
@@ -263,10 +262,10 @@ with aba3:
                         st.session_state['diario_apostas'] = pd.concat([st.session_state['diario_apostas'], nova_aposta], ignore_index=True)
                         st.success("✅ Bilhete lido com sucesso e adicionado à tabela abaixo!")
                     except Exception as e:
-                        st.error(f"Não foi possível ler o bilhete com clareza. Erro: {e}")
+                        st.error(f"Não foi possível ler o bilhete com clareza. Tente um print com melhor resolução. Erro técnico: {e}")
     
     st.markdown("---")
-    st.write("Dê dois cliques na coluna **Status** para mudar de 'Pendente' para 'Ganha' ou 'Perdida'.")
+    st.write("Dê dois cliques na coluna **Status** para mudar de 'Pendente' para 'Ganha' ou 'Perdida'. Dê dois cliques em **Retorno** para adicionar o lucro final.")
     
     df_editado = st.data_editor(
         st.session_state['diario_apostas'],
