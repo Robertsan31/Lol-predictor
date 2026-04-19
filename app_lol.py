@@ -235,20 +235,29 @@ with aba3:
             st.image(imagem, caption="Bilhete detetado pela IA", width=250)
             
             if st.button("🪄 Ler Bilhete e Salvar na Planilha", type="primary"):
-                with st.spinner("A IA está a dissecar o talão..."):
+                with st.spinner("A IA está a usar uma lupa de alta resolução no talão..."):
                     try:
-                        modelo_visao = genai.GenerativeModel('gemini-1.5-flash')
-                        prompt = """
-                        És um assistente de extração de dados. Lê esta imagem de um bilhete de aposta desportiva.
-                        Extrai a informação e devolve APENAS um formato JSON exato. Não escrevas mais nada.
-                        Estrutura obrigatória:
-                        {"Mercado": "Texto", "Confronto": "Texto", "Odd": numero_decimal, "Stake": numero_decimal}
-                        Se não encontrares algo, coloca 0.0 para números ou 'Desconhecido' para textos.
-                        """
-                        resposta = modelo_visao.generate_content([prompt, imagem])
+                        # 1. Tratamento da Imagem: Remove transparências que confundem a IA
+                        img_processada = imagem.convert('RGB')
                         
-                        texto_json = resposta.text.replace('```json', '').replace('```', '').strip()
-                        dados = json.loads(texto_json)
+                        # 2. Prepara o modelo
+                        modelo_visao = genai.GenerativeModel('gemini-1.5-flash')
+                        
+                        prompt_ocr = """
+                        És um leitor ótico (OCR) de apostas. Lê os dados deste print.
+                        Usa o nome dos times no 'Confronto' e o tipo de aposta no 'Mercado'.
+                        Devolve APENAS este formato exato:
+                        {"Mercado": "...", "Confronto": "...", "Odd": 0.00, "Stake": 0.00}
+                        """
+                        
+                        # 3. A MÁGICA: Força o Google a travar a IA e responder SÓ em JSON limpo!
+                        resposta = modelo_visao.generate_content(
+                            [prompt_ocr, img_processada],
+                            generation_config={"response_mime_type": "application/json"}
+                        )
+                        
+                        # Como já vem em JSON nativo, não precisamos de limpar o texto
+                        dados = json.loads(resposta.text)
                         
                         nova_aposta = pd.DataFrame([{
                             'Data': datetime.now().strftime("%d/%m/%Y"),
@@ -260,9 +269,11 @@ with aba3:
                             'Retorno (R$)': 0.0
                         }])
                         st.session_state['diario_apostas'] = pd.concat([st.session_state['diario_apostas'], nova_aposta], ignore_index=True)
-                        st.success("✅ Bilhete lido com sucesso e adicionado à tabela abaixo!")
+                        st.success("✅ Extração Perfeita! Bilhete adicionado à tabela.")
+                        
                     except Exception as e:
-                        st.error(f"Não foi possível ler o bilhete com clareza. Tente um print com melhor resolução. Erro técnico: {e}")
+                        st.error("Falha na extração dos dados. Veja o erro técnico abaixo:")
+                        st.code(str(e)) # Mostra o erro exato na tela para sabermos o que falhou
     
     st.markdown("---")
     st.write("Dê dois cliques na coluna **Status** para mudar de 'Pendente' para 'Ganha' ou 'Perdida'. Dê dois cliques em **Retorno** para adicionar o lucro final.")
