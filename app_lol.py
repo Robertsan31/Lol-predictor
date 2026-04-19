@@ -222,43 +222,55 @@ with aba2:
 
 # --- ABA 3: DIÁRIO E SCANNER OCR ---
 with aba3:
-    st.subheader("📊 O Seu Diário de Apostas")
+    st.subheader("📊 Seu Diário de Apostas")
     
+    # --- NOVO: SCANNER DE BILHETES ---
     st.markdown("### 📸 Scanner Automático de Bilhetes (OCR)")
     if not api_ativa:
-        st.warning("⚠️ Chave do Gemini não encontrada nos Secrets do Streamlit. Vá as definições da sua app na nuvem e adicione a GEMINI_API_KEY para libertar o scanner.")
+        st.warning("⚠️ Chave do Gemini não encontrada nos Secrets do Streamlit.")
     else:
-        imagem_upload = st.file_uploader("Arraste ou carregue o ecrã (print) da sua aposta aqui", type=['png', 'jpg', 'jpeg'])
+        st.info("💡 **Dica de Foco:** Para a IA não errar, a imagem tem de ser nítida. O ideal é tirar um Print da tela ou tirar a foto com a câmara normal do celular e depois fazer o Upload da Galeria.")
+        
+        # Opção para o usuário escolher como enviar
+        modo_foto = st.radio("Como deseja enviar o bilhete?", ["📁 Upload da Galeria / Print", "📷 Tirar Foto Agora (Webcam/Celular)"])
+        
+        imagem_upload = None
+        if modo_foto == "📁 Upload da Galeria / Print":
+            imagem_upload = st.file_uploader("Carregue a imagem aqui", type=['png', 'jpg', 'jpeg'])
+        else:
+            imagem_upload = st.camera_input("Tire a foto (Espere focar bem!)")
         
         if imagem_upload is not None:
             imagem = Image.open(imagem_upload)
-            st.image(imagem, caption="Bilhete detetado pela IA", width=250)
+            st.image(imagem, caption="Bilhete detectado para leitura", width=250)
             
             if st.button("🪄 Ler Bilhete e Salvar na Planilha", type="primary"):
-                with st.spinner("A IA está a usar uma lupa de alta resolução no talão..."):
+                with st.spinner("A procurar o melhor modelo de IA e ler o bilhete..."):
                     try:
-                        # 1. Tratamento da Imagem: Remove transparências que confundem a IA
-                        img_processada = imagem.convert('RGB')
+                        # MAGIA AQUI: O Caçador de Modelos Automático (Resolve o erro 404)
+                        modelo_escolhido = 'gemini-pro-vision' # Backup seguro
+                        for m in genai.list_models():
+                            if 'generateContent' in m.supported_generation_methods:
+                                if '1.5-flash' in m.name:
+                                    modelo_escolhido = m.name
+                                    break # Encontrou o melhor e mais rápido, para a busca!
                         
-                        # 2. Prepara o modelo
-                        modelo_visao = genai.GenerativeModel('gemini-1.5-flash-latest')
+                        modelo_visao = genai.GenerativeModel(modelo_escolhido)
                         
-                        prompt_ocr = """
-                        És um leitor ótico (OCR) de apostas. Lê os dados deste print.
-                        Usa o nome dos times no 'Confronto' e o tipo de aposta no 'Mercado'.
-                        Devolve APENAS este formato exato:
-                        {"Mercado": "...", "Confronto": "...", "Odd": 0.00, "Stake": 0.00}
+                        prompt = """
+                        És um assistente de extração de dados. Lê esta imagem de um bilhete de aposta desportiva.
+                        Extrai a informação e devolve APENAS um formato JSON exato. Não escrevas mais nada além do JSON.
+                        Estrutura obrigatória:
+                        {"Mercado": "Texto", "Confronto": "Texto", "Odd": numero_decimal, "Stake": numero_decimal}
+                        Se não encontrares algo, coloca 0.0 para números ou 'Desconhecido' para textos.
                         """
+                        resposta = modelo_visao.generate_content([prompt, imagem])
                         
-                        # 3. A MÁGICA: Força o Google a travar a IA e responder SÓ em JSON limpo!
-                        resposta = modelo_visao.generate_content(
-                            [prompt_ocr, img_processada],
-                            generation_config={"response_mime_type": "application/json"}
-                        )
+                        # Limpa a resposta para garantir que é um JSON puro
+                        texto_json = resposta.text.replace('```json', '').replace('```', '').strip()
+                        dados = json.loads(texto_json)
                         
-                        # Como já vem em JSON nativo, não precisamos de limpar o texto
-                        dados = json.loads(resposta.text)
-                        
+                        # Adiciona à memória
                         nova_aposta = pd.DataFrame([{
                             'Data': datetime.now().strftime("%d/%m/%Y"),
                             'Mercado': dados.get('Mercado', 'Automático'),
@@ -269,14 +281,12 @@ with aba3:
                             'Retorno (R$)': 0.0
                         }])
                         st.session_state['diario_apostas'] = pd.concat([st.session_state['diario_apostas'], nova_aposta], ignore_index=True)
-                        st.success("✅ Extração Perfeita! Bilhete adicionado à tabela.")
-                        
+                        st.success(f"✅ Lançamento automático efetuado! (Usando o modelo: {modelo_escolhido})")
                     except Exception as e:
-                        st.error("Falha na extração dos dados. Veja o erro técnico abaixo:")
-                        st.code(str(e)) # Mostra o erro exato na tela para sabermos o que falhou
+                        st.error(f"Não foi possível ler o bilhete. Verifique se a foto está legível. Erro Técnico: {e}")
     
     st.markdown("---")
-    st.write("Dê dois cliques na coluna **Status** para mudar de 'Pendente' para 'Ganha' ou 'Perdida'. Dê dois cliques em **Retorno** para adicionar o lucro final.")
+    st.write("Dê dois cliques na coluna **Status** para mudar de 'Pendente' para 'Ganha' ou 'Perdida'.")
     
     df_editado = st.data_editor(
         st.session_state['diario_apostas'],
