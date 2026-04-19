@@ -245,10 +245,28 @@ with aba3:
             st.image(imagem, caption="Bilhete detectado para leitura", width=250)
             
             if st.button("🪄 Ler Bilhete e Salvar na Planilha", type="primary"):
-                with st.spinner("A conectar com os olhos da IA do Google..."):
+                with st.spinner("A investigar os modelos da IA e a ler a imagem..."):
                     try:
-                        # Chamando o modelo OFICIAL e mais atual para leitura de imagens
-                        modelo_visao = genai.GenerativeModel('gemini-1.5-flash')
+                        # --- O RASTREADOR IMPLACÁVEL ---
+                        modelo_ideal = None
+                        modelos_disponiveis = []
+                        
+                        # Pergunta ao Google quais modelos a sua chave pode usar
+                        for m in genai.list_models():
+                            if 'generateContent' in m.supported_generation_methods:
+                                modelos_disponiveis.append(m.name)
+                                # Pesca o modelo certo (Flash, Pro ou Vision)
+                                if 'flash' in m.name or 'vision' in m.name or '1.5' in m.name:
+                                    modelo_ideal = m.name
+                                    
+                        # Se por acaso não achar os nomes novos, usa o último da lista
+                        if modelo_ideal is None:
+                            if modelos_disponiveis:
+                                modelo_ideal = modelos_disponiveis[-1]
+                            else:
+                                modelo_ideal = 'gemini-1.5-flash'
+                                
+                        modelo_visao = genai.GenerativeModel(modelo_ideal)
                         
                         prompt = """
                         És um assistente de extração de dados. Lê esta imagem de um bilhete de aposta desportiva.
@@ -274,9 +292,11 @@ with aba3:
                             'Retorno (R$)': 0.0
                         }])
                         st.session_state['diario_apostas'] = pd.concat([st.session_state['diario_apostas'], nova_aposta], ignore_index=True)
-                        st.success("✅ Bilhete lido com sucesso e adicionado à tabela abaixo!")
+                        st.success(f"✅ Bilhete lido com sucesso! (IA usada: {modelo_ideal})")
+                    
                     except Exception as e:
-                        st.error(f"Não foi possível ler o bilhete. Verifique se a foto está legível. Erro Técnico: {e}")
+                        st.error(f"Erro Técnico: {e}")
+                        st.warning(f"🕵️ Lista de modelos que a sua chave tem acesso: {modelos_disponiveis}")
     st.markdown("---")
     st.write("Dê dois cliques na coluna **Status** para mudar de 'Pendente' para 'Ganha' ou 'Perdida'.")
     
