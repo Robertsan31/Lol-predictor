@@ -4,12 +4,17 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from datetime import datetime
 
-# Tentar ligar ao cérebro do Gemini em segurança
-try:
-    genai.configure(api_key=st.secrets["AIzaSyCIfkRS6tIVQt7eaRBej4RAvWK2Q44jJuc"])
-    api_ativa = True
-except:
-    api_ativa = False
+# Tentar ligar ao cérebro do Gemini com diagnóstico de erro
+api_ativa = False
+if "GEMINI_API_KEY" in st.secrets:
+    try:
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        api_ativa = True
+    except Exception as e:
+        st.error(f"Erro ao configurar IA: {e}")
+else:
+    # Isso vai aparecer no seu log do Streamlit para te ajudar
+    print("Atenção: GEMINI_API_KEY não encontrada nos Secrets")
     
 st.set_page_config(page_title="LoL Predictor PRO", layout="wide")
 
