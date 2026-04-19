@@ -279,7 +279,14 @@ with aba3:
                         
                         # Limpa a resposta para garantir que é um JSON puro
                         texto_json = resposta.text.replace('```json', '').replace('```', '').strip()
-                        dados = json.loads(texto_json)
+                        dados_brutos = json.loads(texto_json)
+                        
+                        # --- CORREÇÃO DO ERRO DA LISTA ---
+                        # Se a IA enviar [ {dados} ] em vez de {dados}, nós pegamos o primeiro item.
+                        if isinstance(dados_brutos, list):
+                            dados = dados_brutos[0] if len(dados_brutos) > 0 else {}
+                        else:
+                            dados = dados_brutos
                         
                         # Adiciona à memória
                         nova_aposta = pd.DataFrame([{
@@ -295,8 +302,7 @@ with aba3:
                         st.success(f"✅ Bilhete lido com sucesso! (IA usada: {modelo_ideal})")
                     
                     except Exception as e:
-                        st.error(f"Erro Técnico: {e}")
-                        st.warning(f"🕵️ Lista de modelos que a sua chave tem acesso: {modelos_disponiveis}")
+                        st.error(f"Erro Técnico ao processar o texto da IA: {e}")
     st.markdown("---")
     st.write("Dê dois cliques na coluna **Status** para mudar de 'Pendente' para 'Ganha' ou 'Perdida'.")
     
