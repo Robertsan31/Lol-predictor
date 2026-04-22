@@ -17,7 +17,7 @@ jobs:
       - name: Checkout do código
         uses: actions/checkout@v4
 
-      - name: 🥷 O Arrombador (Download Nativo via CURL)
+     - name: 🥷 O Arrombador (Download Nativo via CURL)
         run: |
           echo "Baixando dados de 2025..."
           curl -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
