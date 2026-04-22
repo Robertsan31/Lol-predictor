@@ -5,6 +5,8 @@ from sklearn.model_selection import train_test_split
 from datetime import datetime
 import json
 from PIL import Image
+import requests
+import io
 
 # --- IMPORTAÇÕES NOVAS PARA A IA LER IMAGENS ---
 import google.generativeai as genai
@@ -30,11 +32,34 @@ if 'diario_apostas' not in st.session_state:
 if 'analise_salva' not in st.session_state:
     st.session_state['analise_salva'] = False
 
-# --- MOTOR DA INTELIGÊNCIA ARTIFICIAL (V6 - COM MOMENTUM) ---
-@st.cache_resource(ttl=10800) # O cache expira a cada 3 horas (10800 segundos)
-def treinar_motor_dinamico_v6():
-    arquivos = ['2025_LoL_esports_match_data_from_OraclesElixir.csv', '2026_LoL_esports_match_data_from_OraclesElixir.csv']
-    df_lol = pd.concat([pd.read_csv(arq, low_memory=False) for arq in arquivos], ignore_index=True)
+# --- MOTOR DA INTELIGÊNCIA ARTIFICIAL (V7 - LIVE DATA) ---
+@st.cache_resource(show_spinner=False)
+def treinar_motor_dinamico_v7():
+    urls = {
+        "2025_LoL_esports_match_data_from_OraclesElixir.csv": "https://oracleselixir-downloadable-files.s3-us-west-2.amazonaws.com/2025_LoL_esports_match_data_from_OraclesElixir.csv",
+        "2026_LoL_esports_match_data_from_OraclesElixir.csv": "https://oracleselixir-downloadable-files.s3-us-west-2.amazonaws.com/2026_LoL_esports_match_data_from_OraclesElixir.csv"
+    }
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://oracleselixir.com/"
+    }
+    
+    dfs = []
+    for nome_arq, url in urls.items():
+        try:
+            # Tenta puxar da internet primeiro (Live Data)
+            res = requests.get(url, headers=headers, timeout=15)
+            if res.status_code == 200:
+                dfs.append(pd.read_csv(io.StringIO(res.text), low_memory=False))
+            else:
+                # Fallback: Se o site bloquear, lê o arquivo local
+                dfs.append(pd.read_csv(nome_arq, low_memory=False))
+        except Exception:
+            # Fallback 2: Se der erro de conexão, lê o arquivo local
+            dfs.append(pd.read_csv(nome_arq, low_memory=False))
+            
+    df_lol = pd.concat(dfs, ignore_index=True)
     
     df_lck = df_lol[df_lol['league'] == 'LCK'].copy()
     df_times = df_lck[df_lck['position'] == 'team'].copy()
@@ -93,18 +118,23 @@ def treinar_motor_dinamico_v6():
     # --- NOVO: CAPTURANDO A DATA DO ÚLTIMO JOGO ---
     ultima_data = df_limpo['date'].max().strftime("%d/%m/%Y")
     
-    # Note que adicionei 'ultima_data' aqui no final do return
     return lista_times, lista_patches, ultimos_dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X, df_p, ultima_data
 
-# Note que adicionei 'ultima_data_banco' aqui no final para receber a data
-with st.spinner("Conectando o Motor de Momentum (v6) e o Scanner OCR..."):
-    times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas, ultima_data_banco = treinar_motor_dinamico_v6()
+# --- BOTÃO DE ATUALIZAÇÃO MANUAL ---
+col_t, col_b = st.columns([3, 1])
+with col_t:
+    st.title("🏆 LoL Predictor PRO (v7.0 - Live Data & Vision)")
+with col_b:
+    st.write("")
+    if st.button("🔄 Atualizar Dados Agora", type="primary"):
+        st.cache_resource.clear()
+        st.rerun()
 
-# --- FRONT-END ---
-st.title("🏆 LoL Predictor PRO (v6.0 - Momentum & Vision)")
+with st.spinner("Conectando ao Oracle's Elixir e baixando dados atualizados..."):
+    times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas, ultima_data_banco = treinar_motor_dinamico_v7()
 
 # --- NOVO: SELO DE ATUALIZAÇÃO ---
-st.caption(f"🔄 **Status do Oracle's Elixir:** Banco de dados atualizado. Última partida registrada: **{ultima_data_banco}**")
+st.caption(f"✅ **Banco de Dados Sincronizado.** Última partida da LCK registrada: **{ultima_data_banco}**")
 st.markdown("---")
 
 aba1, aba2, aba3 = st.tabs(["🤖 Previsões & Raio-X", "💰 Gestão de Banca", "📊 Diário de Apostas"])
@@ -252,13 +282,14 @@ with aba2:
 with aba3:
     st.subheader("📊 Seu Diário de Apostas")
     
-    # --- SCANNER DE BILHETES ---
+    # --- NOVO: SCANNER DE BILHETES ---
     st.markdown("### 📸 Scanner Automático de Bilhetes (OCR)")
     if not api_ativa:
         st.warning("⚠️ Chave do Gemini não encontrada nos Secrets do Streamlit.")
     else:
         st.info("💡 **Dica de Foco:** Para a IA não errar, a imagem tem de ser nítida. O ideal é tirar um Print da tela ou tirar a foto com a câmara normal do celular e depois fazer o Upload da Galeria.")
         
+        # Opção para o usuário escolher como enviar
         modo_foto = st.radio("Como deseja enviar o bilhete?", ["📁 Upload da Galeria / Print", "📷 Tirar Foto Agora (Webcam/Celular)"])
         
         imagem_upload = None
