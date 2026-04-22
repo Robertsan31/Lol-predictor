@@ -30,9 +30,9 @@ if 'diario_apostas' not in st.session_state:
 if 'analise_salva' not in st.session_state:
     st.session_state['analise_salva'] = False
 
-# --- MOTOR DA INTELIGÊNCIA ARTIFICIAL ---
+# --- MOTOR DA INTELIGÊNCIA ARTIFICIAL (V6 - COM MOMENTUM) ---
 @st.cache_resource 
-def treinar_motor_dinamico_v5():
+def treinar_motor_dinamico_v6():
     arquivos = ['2025_LoL_esports_match_data_from_OraclesElixir.csv', '2026_LoL_esports_match_data_from_OraclesElixir.csv']
     df_lol = pd.concat([pd.read_csv(arq, low_memory=False) for arq in arquivos], ignore_index=True)
     
@@ -44,14 +44,22 @@ def treinar_motor_dinamico_v5():
     
     df_limpo['dragons'] = pd.to_numeric(df_limpo['dragons'], errors='coerce').fillna(0)
     df_limpo['game'] = pd.to_numeric(df_limpo['game'], errors='coerce').fillna(1)
+    df_limpo['date'] = pd.to_datetime(df_limpo['date'], utc=True)
     
+    # --- A MÁGICA DO MOMENTUM (Vem de vitória ou derrota hoje?) ---
+    df_limpo['data_curta'] = df_limpo['date'].dt.date
+    df_limpo = df_limpo.sort_values(['teamname', 'date'])
+    # Se ganhou o jogo anterior no mesmo dia = 1.0, perdeu = 0.0, primeiro jogo = 0.5
+    df_limpo['momentum'] = df_limpo.groupby(['teamname', 'data_curta'])['result'].shift(1).fillna(0.5)
+    
+    # Dragões e Tempo
     df_limpo['total_dragons_partida'] = df_limpo.groupby('gameid')['dragons'].transform('sum')
     df_limpo['opp_dragons'] = df_limpo['total_dragons_partida'] - df_limpo['dragons']
     
     df_limpo['over_4_dragons'] = (df_limpo['total_dragons_partida'] > 4).astype(int)
     df_limpo['mais_dragons'] = (df_limpo['dragons'] > df_limpo['opp_dragons']).astype(int)
     
-    df_limpo['date'] = pd.to_datetime(df_limpo['date'], utc=True)
+    # Reordenar por data para calcular as médias históricas gerais
     df_limpo = df_limpo.sort_values('date')
     
     df_limpo['patch'] = df_limpo['patch'].astype(str).str.extract(r'(\d+\.\d+)')[0]
@@ -64,8 +72,9 @@ def treinar_motor_dinamico_v5():
     df_vermelho = df_limpo[df_limpo['side'] == 'Red'].copy().add_suffix('_red').rename(columns={'gameid_red': 'gameid'})
     df_p = pd.merge(df_azul, df_vermelho, on='gameid').dropna()
 
+    # Adicionado momentum_blue como a 9ª pista para a IA
     features = ['media_result_blue', 'media_mais_dragons_blue', 'media_dragons_blue',
-                'media_result_red', 'media_mais_dragons_red', 'media_dragons_red', 'playoffs_blue', 'game_blue']
+                'media_result_red', 'media_mais_dragons_red', 'media_dragons_red', 'playoffs_blue', 'game_blue', 'momentum_blue']
     X = df_p[features]
     
     m_vit = RandomForestClassifier(n_estimators=200, random_state=42).fit(X, df_p['result_blue'])
@@ -74,7 +83,7 @@ def treinar_motor_dinamico_v5():
     
     importancias = m_vit.feature_importances_
     nomes_variaveis = ['Blue - Win Rate', 'Blue - +Dragões', 'Blue - Média Dragões',
-                       'Red - Win Rate', 'Red - +Dragões', 'Red - Média Dragões', 'Fator MD5/Playoff', 'Número do Mapa']
+                       'Red - Win Rate', 'Red - +Dragões', 'Red - Média Dragões', 'Fator MD5/Playoff', 'Número do Mapa', 'Fator Psicológico (Momentum)']
     df_peso_ia = pd.DataFrame({'Peso na Decisão (%)': importancias * 100}, index=nomes_variaveis)
     
     lista_times = sorted(df_limpo['teamname'].unique())
@@ -83,27 +92,37 @@ def treinar_motor_dinamico_v5():
     
     return lista_times, lista_patches, ultimos_dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X, df_p
 
-with st.spinner("Construindo o novo Motor Dinâmico e Conectando Scanner..."):
-    times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas = treinar_motor_dinamico_v5()
+with st.spinner("Conectando o Motor de Momentum (v6) e o Scanner OCR..."):
+    times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas = treinar_motor_dinamico_v6()
 
 # --- FRONT-END ---
-st.title("🏆 LoL Predictor PRO (v5.3 - Vision Engine)")
+st.title("🏆 LoL Predictor PRO (v6.0 - Momentum & Vision)")
 st.markdown("---")
 
 aba1, aba2, aba3 = st.tabs(["🤖 Previsões & Raio-X", "💰 Gestão de Banca", "📊 Diário de Apostas"])
 
 # --- ABA 1: PREVISÕES ---
 with aba1:
-    col_p, col_m, col_map, col_t = st.columns(4)
+    col_p, col_m, col_map, col_win = st.columns(4)
     p_atual = col_p.selectbox("🛠️ Patch", patches)
     is_playoff = col_m.checkbox("⚠️ MD5 (Playoffs)?")
     num_mapa = col_map.selectbox("📍 Nº do Mapa", [1, 2, 3, 4, 5])
-    linha_tempo_casa = col_t.number_input("⏱️ Linha de Tempo (Min)", min_value=20.0, max_value=50.0, value=32.5, step=0.5)
+    
+    # NOVO: Coletando a informação do Momentum (Apenas se não for mapa 1)
+    res_anterior = 0.5 # Padrão (Sem vantagem para ninguém)
+    if num_mapa > 1:
+        quem_ganhou = col_win.selectbox("Quem venceu o mapa anterior?", ["-", "🟦 Lado Azul", "🟥 Lado Vermelho"])
+        if quem_ganhou == "🟦 Lado Azul":
+            res_anterior = 1.0
+        elif quem_ganhou == "🟥 Lado Vermelho":
+            res_anterior = 0.0
+
     st.markdown("---")
     
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns([2, 2, 1])
     t_azul = c1.selectbox("🟦 Lado Azul", times, index=0)
     t_red = c2.selectbox("🟥 Lado Vermelho", times, index=1)
+    linha_tempo_casa = c3.number_input("⏱️ Linha de Tempo", min_value=20.0, max_value=50.0, value=32.5, step=0.5)
     
     if st.button("Analisar Todos os Mercados", type="primary"):
         if t_azul == t_red:
@@ -115,9 +134,10 @@ with aba1:
             if s_a.empty: s_a = dados[dados['teamname'] == t_azul].iloc[[-1]]
             if s_r.empty: s_r = dados[dados['teamname'] == t_red].iloc[[-1]]
             
+            # IA Recebe as 9 Informações
             input_ia = [[s_a['media_result'].values[0], s_a['media_mais_dragons'].values[0], s_a['media_dragons'].values[0],
                          s_r['media_result'].values[0], s_r['media_mais_dragons'].values[0], s_r['media_dragons'].values[0],
-                         1 if is_playoff else 0, num_mapa]]
+                         1 if is_playoff else 0, num_mapa, res_anterior]]
             
             # Treinamento Dinâmico de Tempo
             limite_segundos = linha_tempo_casa * 60
@@ -158,7 +178,7 @@ with aba1:
         t2.metric(f"Under {mem['linha_t']} min", f"{mem['prob_t'][0]*100:.1f}%")
 
         st.markdown("---")
-        st.subheader("🔍 Raio-X do Vencedor")
+        st.subheader("🔍 Raio-X do Vencedor (Veja o peso do Momentum)")
         st.bar_chart(mem['peso_ia'])
 
 # --- ABA 2: CALCULADORA KELLY ---
@@ -166,7 +186,7 @@ with aba2:
     st.subheader("Calculadora Avançada de Stake (Com Trava de Plataforma)")
     col1, col2 = st.columns(2)
     with col1:
-        banca = st.number_input("Banca Atual (R$)", min_value=1.0, value=100.0, step=10.0)
+        banca = st.number_input("Banca Atual (R$)", min_value=1.0, value=77.39, step=10.0)
         chance_ia = st.number_input("Probabilidade da IA (%)", min_value=1.0, max_value=99.0, value=55.0)
         odd_casa = st.number_input("Odd da Casa de Apostas", min_value=1.01, value=1.85, step=0.05)
     with col2:
@@ -224,14 +244,13 @@ with aba2:
 with aba3:
     st.subheader("📊 Seu Diário de Apostas")
     
-    # --- NOVO: SCANNER DE BILHETES ---
+    # --- SCANNER DE BILHETES ---
     st.markdown("### 📸 Scanner Automático de Bilhetes (OCR)")
     if not api_ativa:
         st.warning("⚠️ Chave do Gemini não encontrada nos Secrets do Streamlit.")
     else:
         st.info("💡 **Dica de Foco:** Para a IA não errar, a imagem tem de ser nítida. O ideal é tirar um Print da tela ou tirar a foto com a câmara normal do celular e depois fazer o Upload da Galeria.")
         
-        # Opção para o usuário escolher como enviar
         modo_foto = st.radio("Como deseja enviar o bilhete?", ["📁 Upload da Galeria / Print", "📷 Tirar Foto Agora (Webcam/Celular)"])
         
         imagem_upload = None
