@@ -5,33 +5,37 @@ on:
     # Roda todo dia às 07:00 UTC (04:00 da manhã no Brasil)
     - cron: '0 7 * * *'
   workflow_dispatch:
-    # Isso aqui é o que cria o seu "BOTÃO" de atualizar manualmente
+    # Botão manual
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Dá permissão pro robô escrever no seu GitHub
+      contents: write
 
     steps:
       - name: Checkout do código
-        uses: actions/checkout@v4  # Mudei de v3 para v4 aqui
+        uses: actions/checkout@v4
 
-      - name: Instalar Python
-        uses: actions/setup-python@v5 # Mudei de v4 para v5 aqui
-        with:
-          python-version: '3.9'
-
-      - name: Instalar dependências
-        run: pip install requests
-
-      - name: Rodar script de atualização
-        run: python atualizar_dados.py
+      - name: 🥷 O Arrombador (Download Nativo via CURL)
+        run: |
+          echo "Baixando dados de 2025..."
+          curl -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+               -e "https://oracleselixir.com/" \
+               -o 2025_LoL_esports_match_data_from_OraclesElixir.csv \
+               "https://oracleselixir-downloadable-files.s3-us-west-2.amazonaws.com/2025_LoL_esports_match_data_from_OraclesElixir.csv"
+          
+          echo "Baixando dados de 2026..."
+          curl -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+               -e "https://oracleselixir.com/" \
+               -o 2026_LoL_esports_match_data_from_OraclesElixir.csv \
+               "https://oracleselixir-downloadable-files.s3-us-west-2.amazonaws.com/2026_LoL_esports_match_data_from_OraclesElixir.csv"
 
       - name: Salvar mudanças no GitHub
         run: |
           git config --global user.name 'Robo-Predictor'
           git config --global user.email 'bot@github.com'
           git add *.csv
-          git commit -m "🤖 Dados atualizados automaticamente" || exit 0
+          # Se o arquivo mudou, ele salva. Se não mudou, ele não dá erro.
+          git diff-index --quiet HEAD || git commit -m "🤖 Dados hackeados e atualizados com sucesso via CURL!"
           git push
