@@ -90,13 +90,21 @@ def treinar_motor_dinamico_v6():
     lista_patches = sorted(df_limpo['patch'].dropna().unique(), reverse=True)
     ultimos_dados = df_limpo.groupby(['teamname', 'patch']).last().reset_index()
     
-    return lista_times, lista_patches, ultimos_dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X, df_p
+    # --- NOVO: CAPTURANDO A DATA DO ÚLTIMO JOGO ---
+    ultima_data = df_limpo['date'].max().strftime("%d/%m/%Y")
+    
+    # Note que adicionei 'ultima_data' aqui no final do return
+    return lista_times, lista_patches, ultimos_dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X, df_p, ultima_data
 
+# Note que adicionei 'ultima_data_banco' aqui no final para receber a data
 with st.spinner("Conectando o Motor de Momentum (v6) e o Scanner OCR..."):
-    times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas = treinar_motor_dinamico_v6()
+    times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas, ultima_data_banco = treinar_motor_dinamico_v6()
 
 # --- FRONT-END ---
 st.title("🏆 LoL Predictor PRO (v6.0 - Momentum & Vision)")
+
+# --- NOVO: SELO DE ATUALIZAÇÃO ---
+st.caption(f"🔄 **Status do Oracle's Elixir:** Banco de dados atualizado. Última partida registrada: **{ultima_data_banco}**")
 st.markdown("---")
 
 aba1, aba2, aba3 = st.tabs(["🤖 Previsões & Raio-X", "💰 Gestão de Banca", "📊 Diário de Apostas"])
