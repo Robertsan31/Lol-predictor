@@ -31,7 +31,7 @@ if 'analise_salva' not in st.session_state:
     st.session_state['analise_salva'] = False
 
 # --- MOTOR DA INTELIGÊNCIA ARTIFICIAL (V6 - COM MOMENTUM) ---
-@st.cache_resource 
+@st.cache_resource(ttl=10800) # O cache expira a cada 3 horas (10800 segundos)
 def treinar_motor_dinamico_v6():
     arquivos = ['2025_LoL_esports_match_data_from_OraclesElixir.csv', '2026_LoL_esports_match_data_from_OraclesElixir.csv']
     df_lol = pd.concat([pd.read_csv(arq, low_memory=False) for arq in arquivos], ignore_index=True)
