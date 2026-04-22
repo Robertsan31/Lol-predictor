@@ -5,33 +5,27 @@ on:
     # Roda todo dia às 07:00 UTC (04:00 da manhã no Brasil)
     - cron: '0 7 * * *'
   workflow_dispatch:
-    # Isso aqui é o que cria o seu "BOTÃO" de atualizar manualmente
+    # Botão manual
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Dá permissão pro robô escrever no seu GitHub
+      contents: write
 
     steps:
       - name: Checkout do código
-        uses: actions/checkout@v4  # Mudei de v3 para v4 aqui
+        uses: actions/checkout@v4
 
-      - name: Instalar Python
-        uses: actions/setup-python@v5 # Mudei de v4 para v5 aqui
-        with:
-          python-version: '3.9'
+      - name: 🥷 O Trator (Download Nativo via WGET)
+        run: |
+          wget -O 2025_LoL_esports_match_data_from_OraclesElixir.csv --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0" --header="Referer: https://oracleselixir.com/" "https://oracleselixir-downloadable-files.s3-us-west-2.amazonaws.com/2025_LoL_esports_match_data_from_OraclesElixir.csv"
+          wget -O 2026_LoL_esports_match_data_from_OraclesElixir.csv --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0" --header="Referer: https://oracleselixir.com/" "https://oracleselixir-downloadable-files.s3-us-west-2.amazonaws.com/2026_LoL_esports_match_data_from_OraclesElixir.csv"
 
-      - name: Instalar dependências
-        run: pip install requests
-
-      - name: Rodar script de atualização
-        run: python atualizar_dados.py
-
-      - name: Salvar mudanças no GitHub
+      - name: Salvar mudancas no GitHub
         run: |
           git config --global user.name 'Robo-Predictor'
           git config --global user.email 'bot@github.com'
           git add *.csv
-          git commit -m "🤖 Dados atualizados automaticamente" || exit 0
+          git diff-index --quiet HEAD || git commit -m "🤖 Dados atualizados com sucesso via WGET!"
           git push
