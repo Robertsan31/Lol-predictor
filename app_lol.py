@@ -35,31 +35,37 @@ if 'analise_salva' not in st.session_state:
 # --- MOTOR DA INTELIGÊNCIA ARTIFICIAL (V7 - LIVE DATA) ---
 @st.cache_resource(show_spinner=False)
 def treinar_motor_dinamico_v7():
+    filenames = [
+        "2025_LoL_esports_match_data_from_OraclesElixir.csv",
+        "2026_LoL_esports_match_data_from_OraclesElixir.csv"
+    ]
+    
     urls = {
         "2025_LoL_esports_match_data_from_OraclesElixir.csv": "https://oracleselixir-downloadable-files.s3-us-west-2.amazonaws.com/2025_LoL_esports_match_data_from_OraclesElixir.csv",
         "2026_LoL_esports_match_data_from_OraclesElixir.csv": "https://oracleselixir-downloadable-files.s3-us-west-2.amazonaws.com/2026_LoL_esports_match_data_from_OraclesElixir.csv"
     }
     
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": "https://oracleselixir.com/"
-    }
-    
+    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://oracleselixir.com/"}
     dfs = []
-    for nome_arq, url in urls.items():
+
+    for nome_arq in filenames:
         try:
-            # Tenta puxar da internet primeiro (Live Data)
-            res = requests.get(url, headers=headers, timeout=15)
-            if res.status_code == 200:
-                dfs.append(pd.read_csv(io.StringIO(res.text), low_memory=False))
-            else:
-                # Fallback: Se o site bloquear, lê o arquivo local
-                dfs.append(pd.read_csv(nome_arq, low_memory=False))
+            # 1. TENTA LER O ARQUIVO LOCAL PRIMEIRO (O que você subiu no GitHub)
+            df_temp = pd.read_csv(nome_arq, low_memory=False)
+            dfs.append(df_temp)
+            print(f"✅ Lendo arquivo local: {nome_arq}")
         except Exception:
-            # Fallback 2: Se der erro de conexão, lê o arquivo local
-            dfs.append(pd.read_csv(nome_arq, low_memory=False))
-            
+            # 2. SE NÃO ACHAR LOCAL, TENTA BAIXAR
+            try:
+                res = requests.get(urls[nome_arq], headers=headers, timeout=10)
+                if res.status_code == 200:
+                    dfs.append(pd.read_csv(io.StringIO(res.text), low_memory=False))
+                    print(f"🌐 Baixado da internet: {nome_arq}")
+            except:
+                st.error(f"Erro: Não encontrei o arquivo {nome_arq} no GitHub.")
+
     df_lol = pd.concat(dfs, ignore_index=True)
+    # ... (o resto do código de processamento continua igual daqui pra baixo)
     
     df_lck = df_lol[df_lol['league'] == 'LCK'].copy()
     df_times = df_lck[df_lck['position'] == 'team'].copy()
