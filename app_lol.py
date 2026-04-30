@@ -36,16 +36,18 @@ if 'analise_salva' not in st.session_state:
     st.session_state['analise_salva'] = False
 
 # --- NOVO: O CÃO FAREJADOR (BUSCA DE ODDS AO VIVO) ---
-@st.cache_data(ttl=3600) # Guarda o resultado por 1 hora para economizar cota (500/mês)
+@st.cache_data(ttl=3600)
 def buscar_odds_ao_vivo(api_key):
     if not api_key:
         return None
-    url = f"https://api.the-odds-api.com/v4/sports/esports_league_of_legends/odds/?apiKey={api_key}&regions=eu,us&markets=h2h&oddsFormat=decimal"
+    # Adicionamos uk e au na url para garantir que pega todas as casas globais (Bet365 inclusa)
+    url = f"https://api.the-odds-api.com/v4/sports/esports_league_of_legends/odds/?apiKey={api_key}&regions=eu,us,uk,au&markets=h2h&oddsFormat=decimal"
     try:
         res = requests.get(url, timeout=10)
         if res.status_code == 200:
             return res.json()
-        return None
+        else:
+            return {"erro": res.status_code, "mensagem": res.text} # Salva o erro se der ruim
     except:
         return None
 
@@ -314,6 +316,17 @@ with aba1:
                         st.error(f"🛑 Odd da {mem['t_red']} sem valor (-EV)")
             else:
                 st.warning("⚠️ Jogo não listado nas casas mapeadas neste exato momento (ou a linha já fechou).")
+                # --- MODO RAIO-X PARA DEBUG ---
+            with st.expander("🛠️ Raio-X do Farejador (Ver o que a API achou)"):
+                if isinstance(odds_ao_vivo, list):
+                    if len(odds_ao_vivo) == 0:
+                        st.write("A API não devolveu NENHUM jogo de LoL neste momento.")
+                    else:
+                        st.write(f"A API encontrou {len(odds_ao_vivo)} jogos de LoL no mundo agora:")
+                        for p in odds_ao_vivo:
+                            st.write(f"🎮 {p.get('home_team')} vs {p.get('away_team')}")
+                elif isinstance(odds_ao_vivo, dict) and "erro" in odds_ao_vivo:
+                    st.error(f"Erro de conexão com a API: {odds_ao_vivo['mensagem']}")
             st.markdown("---")
 
         # --- PAINEL DE TENDÊNCIAS (V8) ---
