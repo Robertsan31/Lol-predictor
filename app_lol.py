@@ -195,10 +195,8 @@ with aba1:
     res_anterior = 0.5 
     if num_mapa > 1:
         quem_ganhou = col_win.selectbox("Quem venceu o mapa anterior?", ["-", "🟦 Lado Azul", "🟥 Lado Vermelho"])
-        if quem_ganhou == "🟦 Lado Azul":
-            res_anterior = 1.0
-        elif quem_ganhou == "🟥 Lado Vermelho":
-            res_anterior = 0.0
+        if quem_ganhou == "🟦 Lado Azul": res_anterior = 1.0
+        elif quem_ganhou == "🟥 Lado Vermelho": res_anterior = 0.0
 
     st.markdown("---")
     
@@ -220,22 +218,20 @@ with aba1:
                 s_a = s_a.iloc[[-1]]
                 s_r = s_r.iloc[[-1]]
                 
-                # IA Recebe as 13 Informações
                 input_ia = [[s_a['media_result'].values[0], s_a['media_mais_dragons'].values[0], s_a['media_dragons'].values[0], s_a['media_firstblood'].values[0], s_a['media_ckpm'].values[0],
                              s_r['media_result'].values[0], s_r['media_mais_dragons'].values[0], s_r['media_dragons'].values[0], s_r['media_firstblood'].values[0], s_r['media_ckpm'].values[0],
                              1 if is_playoff else 0, num_mapa, res_anterior]]
                 
-                # Treinamento Dinâmico de Tempo
                 limite_segundos = linha_tempo_casa * 60
                 df_partidas_local = df_partidas.copy()
                 df_partidas_local['alvo_tempo'] = (df_partidas_local['gamelength_blue'] > limite_segundos).astype(int)
                 m_tempo_dinamico = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42).fit(X_historico, df_partidas_local['alvo_tempo'])
                 prob_t_dinamica = m_tempo_dinamico.predict_proba(input_ia)[0]
-                # --- O RADAR EM AÇÃO (COM TRADUTOR DE NOMES) ---
+                
+                # --- O RADAR EM AÇÃO (BLINDADO E COM TRADUTOR) ---
                 odd_encontrada_a = None
                 odd_encontrada_r = None
                 
-                # Dicionário de Sinônimos (Tradução Planilha -> API)
                 def obter_apelidos(nome_time):
                     nome = nome_time.lower()
                     apelidos = [nome, nome.split()[0]]
@@ -251,15 +247,17 @@ with aba1:
                     if "nongshim" in nome or "ns" in nome: apelidos.extend(["nongshim", "redforce", "ns"])
                     return apelidos
 
-                if odds_ao_vivo:
+                if isinstance(odds_ao_vivo, list): # Só procura se a API devolveu uma lista válida
                     apelidos_a = obter_apelidos(t_azul)
                     apelidos_r = obter_apelidos(t_red)
                     
                     for partida in odds_ao_vivo:
+                        # Se não for um dicionário (erro estranho da API), pula
+                        if not isinstance(partida, dict): continue
+                        
                         home = partida.get('home_team', '').lower()
                         away = partida.get('away_team', '').lower()
                         
-                        # Verifica se algum dos apelidos bate com o nome da casa e de fora
                         match_a = any(apelido in home or apelido in away for apelido in apelidos_a)
                         match_r = any(apelido in home or apelido in away for apelido in apelidos_r)
                         
@@ -269,12 +267,8 @@ with aba1:
                                     if market['key'] == 'h2h':
                                         for outcome in market['outcomes']:
                                             nome_out = outcome['name'].lower()
-                                            # Se o nome da odd bater com o apelido do Lado Azul
-                                            if any(ap in nome_out for ap in apelidos_a):
-                                                odd_encontrada_a = outcome['price']
-                                            # Se o nome da odd bater com o apelido do Lado Vermelho
-                                            if any(ap in nome_out for ap in apelidos_r):
-                                                odd_encontrada_r = outcome['price']
+                                            if any(ap in nome_out for ap in apelidos_a): odd_encontrada_a = outcome['price']
+                                            if any(ap in nome_out for ap in apelidos_r): odd_encontrada_r = outcome['price']
                                         break
 
                 st.session_state['analise_salva'] = True
@@ -293,40 +287,37 @@ with aba1:
     if st.session_state['analise_salva']:
         mem = st.session_state['dados_analise']
         
-        # --- NOVO PAINEL: CÃO FAREJADOR ---
+        # --- PAINEL: CÃO FAREJADOR ---
         if odds_api_key:
             st.markdown("### 📡 Radar de Odds Globais (Vencedor)")
+            
             if mem['odd_a'] and mem['odd_r']:
-                st.success(f"Jogo encontrado no mercado mundial! Odds Base: **{mem['t_azul']} ({mem['odd_a']})** vs **{mem['t_red']} ({mem['odd_r']})**")
-                
-                # Calcula o Valor Esperado Automático
+                st.success(f"Jogo encontrado no mercado! Odds: **{mem['t_azul']} ({mem['odd_a']})** vs **{mem['t_red']} ({mem['odd_r']})**")
                 ev_a = ((mem['prob_v'][1] * mem['odd_a']) - 1) * 100
                 ev_r = ((mem['prob_v'][0] * mem['odd_r']) - 1) * 100
                 
                 rad1, rad2 = st.columns(2)
                 with rad1:
-                    if ev_a > 0:
-                        st.info(f"🔥 VANTAGEM MATEMÁTICA NA **{mem['t_azul']}** (+{ev_a:.2f}%)")
-                    else:
-                        st.error(f"🛑 Odd da {mem['t_azul']} sem valor (-EV)")
+                    if ev_a > 0: st.info(f"🔥 VANTAGEM NA **{mem['t_azul']}** (+{ev_a:.2f}%)")
+                    else: st.error(f"🛑 {mem['t_azul']} sem valor (-EV)")
                 with rad2:
-                    if ev_r > 0:
-                        st.info(f"🔥 VANTAGEM MATEMÁTICA NA **{mem['t_red']}** (+{ev_r:.2f}%)")
-                    else:
-                        st.error(f"🛑 Odd da {mem['t_red']} sem valor (-EV)")
+                    if ev_r > 0: st.info(f"🔥 VANTAGEM NA **{mem['t_red']}** (+{ev_r:.2f}%)")
+                    else: st.error(f"🛑 {mem['t_red']} sem valor (-EV)")
             else:
                 st.warning("⚠️ Jogo não listado nas casas mapeadas neste exato momento (ou a linha já fechou).")
-                # --- MODO RAIO-X PARA DEBUG ---
-            with st.expander("🛠️ Raio-X do Farejador (Ver o que a API achou)"):
+            
+            # --- MODO RAIO-X BLINDADO ---
+            with st.expander("🛠️ Modo Raio-X (Diagnóstico da API)"):
                 if isinstance(odds_ao_vivo, list):
                     if len(odds_ao_vivo) == 0:
-                        st.write("A API não devolveu NENHUM jogo de LoL neste momento.")
+                        st.write("A API não enviou NENHUM jogo de LoL neste momento.")
                     else:
-                        st.write(f"A API encontrou {len(odds_ao_vivo)} jogos de LoL no mundo agora:")
+                        st.write(f"A API listou {len(odds_ao_vivo)} jogos no mundo:")
                         for p in odds_ao_vivo:
-                            st.write(f"🎮 {p.get('home_team')} vs {p.get('away_team')}")
-                elif isinstance(odds_ao_vivo, dict) and "erro" in odds_ao_vivo:
-                    st.error(f"Erro de conexão com a API: {odds_ao_vivo['mensagem']}")
+                            if isinstance(p, dict):
+                                st.write(f"🎮 {p.get('home_team', '?')} vs {p.get('away_team', '?')}")
+                else:
+                    st.error(f"Erro da API (Cota estourada ou Região Inválida): {odds_ao_vivo}")
             st.markdown("---")
 
         # --- PAINEL DE TENDÊNCIAS (V8) ---
@@ -339,7 +330,6 @@ with aba1:
         
         with dica_col1:
             st.info(f"**🔥 Early Game (First Blood):** \n\nA equipa **{mem['t_azul']}** tem {fb_a*100:.0f}% de taxa de FB recente, contra {fb_r*100:.0f}% de **{mem['t_red']}**. \n*Ideia:* Se a diferença for grande, foque no First Blood!")
-        
         with dica_col2:
             if ckpm_comb > 0.8:
                 st.warning(f"**🩸 Volatilidade (Mortes): ALTA**\n\nEstas duas equipas gostam muito de lutar. Tendência para o **Under Tempo** e Over Kills.")
@@ -371,7 +361,6 @@ with aba1:
         st.markdown("---")
         st.subheader("🔍 Raio-X do Vencedor (Peso das Variáveis)")
         st.bar_chart(mem['peso_ia'])
-
 # --- ABA 2: CALCULADORA KELLY ---
 with aba2:
     st.subheader("Calculadora Avançada de Stake (Com Trava de Plataforma)")
