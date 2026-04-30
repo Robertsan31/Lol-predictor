@@ -229,31 +229,51 @@ with aba1:
                 df_partidas_local['alvo_tempo'] = (df_partidas_local['gamelength_blue'] > limite_segundos).astype(int)
                 m_tempo_dinamico = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42).fit(X_historico, df_partidas_local['alvo_tempo'])
                 prob_t_dinamica = m_tempo_dinamico.predict_proba(input_ia)[0]
-                
-                # --- O RADAR EM AÇÃO ---
+                # --- O RADAR EM AÇÃO (COM TRADUTOR DE NOMES) ---
                 odd_encontrada_a = None
                 odd_encontrada_r = None
                 
+                # Dicionário de Sinônimos (Tradução Planilha -> API)
+                def obter_apelidos(nome_time):
+                    nome = nome_time.lower()
+                    apelidos = [nome, nome.split()[0]]
+                    if "brion" in nome: apelidos.extend(["brion", "bro", "oksavingsbank"])
+                    if "soop" in nome: apelidos.extend(["soop", "freecs", "kwangdong"])
+                    if "drx" in nome: apelidos.extend(["drx"])
+                    if "t1" in nome: apelidos.extend(["t1", "skt"])
+                    if "gen.g" in nome or "geng" in nome: apelidos.extend(["gen.g", "geng", "gen"])
+                    if "hanwha" in nome or "hle" in nome: apelidos.extend(["hanwha", "hle"])
+                    if "kt" in nome: apelidos.extend(["kt", "rolster"])
+                    if "dplus" in nome or "dk" in nome: apelidos.extend(["dplus", "dk", "damwon"])
+                    if "fearx" in nome or "fox" in nome: apelidos.extend(["fearx", "fox", "liv sandbox"])
+                    if "nongshim" in nome or "ns" in nome: apelidos.extend(["nongshim", "redforce", "ns"])
+                    return apelidos
+
                 if odds_ao_vivo:
-                    # Tenta encontrar o jogo pelo nome dos times
-                    kw_a = t_azul.split()[0].lower() # Ex: 'T1'
-                    kw_r = t_red.split()[0].lower()  # Ex: 'Gen.G'
+                    apelidos_a = obter_apelidos(t_azul)
+                    apelidos_r = obter_apelidos(t_red)
                     
                     for partida in odds_ao_vivo:
                         home = partida.get('home_team', '').lower()
                         away = partida.get('away_team', '').lower()
                         
-                        if (kw_a in home or kw_a in away) and (kw_r in home or kw_r in away):
-                            # Se achou o jogo, pega as odds do primeiro bookmaker (geralmente Pinnacle ou similar)
+                        # Verifica se algum dos apelidos bate com o nome da casa e de fora
+                        match_a = any(apelido in home or apelido in away for apelido in apelidos_a)
+                        match_r = any(apelido in home or apelido in away for apelido in apelidos_r)
+                        
+                        if match_a and match_r:
                             for bookmaker in partida.get('bookmakers', []):
                                 for market in bookmaker.get('markets', []):
-                                    if market['key'] == 'h2h': # h2h = Head to Head (Vencedor)
+                                    if market['key'] == 'h2h':
                                         for outcome in market['outcomes']:
-                                            if kw_a in outcome['name'].lower():
+                                            nome_out = outcome['name'].lower()
+                                            # Se o nome da odd bater com o apelido do Lado Azul
+                                            if any(ap in nome_out for ap in apelidos_a):
                                                 odd_encontrada_a = outcome['price']
-                                            if kw_r in outcome['name'].lower():
+                                            # Se o nome da odd bater com o apelido do Lado Vermelho
+                                            if any(ap in nome_out for ap in apelidos_r):
                                                 odd_encontrada_r = outcome['price']
-                                        break # Sai depois de achar o h2h
+                                        break
 
                 st.session_state['analise_salva'] = True
                 st.session_state['dados_analise'] = {
