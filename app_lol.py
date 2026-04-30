@@ -11,9 +11,9 @@ import io
 # --- IMPORTAÇÕES NOVAS PARA A IA LER IMAGENS ---
 import google.generativeai as genai
 
-st.set_page_config(page_title="LoL Predictor PRO v9", layout="wide")
+st.set_page_config(page_title="LoL Predictor PRO v10", layout="wide")
 
-# --- CONECTANDO O CÉREBRO DO GEMINI (SCANNER) E DA ODDS API ---
+# --- CONECTANDO O CÉREBRO DO GEMINI (SCANNER) E PANDASCORE ---
 api_ativa = False
 if "GEMINI_API_KEY" in st.secrets:
     try:
@@ -24,8 +24,8 @@ if "GEMINI_API_KEY" in st.secrets:
 else:
     print("Atenção: GEMINI_API_KEY não encontrada nos Secrets do Streamlit.")
 
-# Chave secreta da The Odds API
-odds_api_key = st.secrets.get("ODDS_API_KEY", None)
+# Chave secreta da PandaScore (Tenta pegar PANDASCORE_API_KEY, se não achar, tenta a antiga)
+pandascore_key = st.secrets.get("PANDASCORE_API_KEY", st.secrets.get("ODDS_API_KEY", None))
 
 # --- MEMÓRIA DO DIÁRIO DE APOSTAS E DA ANÁLISE ---
 if 'diario_apostas' not in st.session_state:
@@ -35,25 +35,27 @@ if 'diario_apostas' not in st.session_state:
 if 'analise_salva' not in st.session_state:
     st.session_state['analise_salva'] = False
 
-# --- NOVO: O CÃO FAREJADOR (BUSCA DE ODDS AO VIVO) ---
-@st.cache_data(ttl=3600)
-def buscar_odds_ao_vivo(api_key):
+# --- NOVO: O CÃO FAREJADOR (BUSCA DE JOGOS PANDASCORE) ---
+@st.cache_data(ttl=1800) # Guarda o resultado por 30 minutos
+def buscar_jogos_pandascore(api_key):
     if not api_key:
         return None
-    # Adicionamos uk e au na url para garantir que pega todas as casas globais (Bet365 inclusa)
-    url = f"https://api.the-odds-api.com/v4/sports/esports_league_of_legends/odds/?apiKey={api_key}&regions=eu,us&markets=h2h&oddsFormat=decimal"
+    
+    url = "https://api.pandascore.co/lol/matches/upcoming"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    
     try:
-        res = requests.get(url, timeout=10)
+        res = requests.get(url, headers=headers, timeout=10)
         if res.status_code == 200:
             return res.json()
         else:
-            return {"erro": res.status_code, "mensagem": res.text} # Salva o erro se der ruim
-    except:
-        return None
+            return {"erro": res.status_code, "mensagem": res.text}
+    except Exception as e:
+        return {"erro": "Exception", "mensagem": str(e)}
 
-# --- MOTOR DA INTELIGÊNCIA ARTIFICIAL (V9.0 - TENDÊNCIAS E ODDS) ---
+# --- MOTOR DA INTELIGÊNCIA ARTIFICIAL (V10) ---
 @st.cache_resource(show_spinner=False)
-def treinar_motor_dinamico_v8():
+def treinar_motor_dinamico_v10():
     filenames = [
         "2025_LoL_esports_match_data_from_OraclesElixir.csv",
         "2026_LoL_esports_match_data_from_OraclesElixir.csv"
@@ -69,11 +71,9 @@ def treinar_motor_dinamico_v8():
 
     for nome_arq in filenames:
         try:
-            # 1. TENTA LER O ARQUIVO LOCAL PRIMEIRO (O que você subiu no GitHub)
             df_temp = pd.read_csv(nome_arq, low_memory=False)
             dfs.append(df_temp)
         except Exception:
-            # 2. SE NÃO ACHAR LOCAL, TENTA BAIXAR
             try:
                 res = requests.get(urls[nome_arq], headers=headers, timeout=10)
                 if res.status_code == 200:
@@ -88,7 +88,6 @@ def treinar_motor_dinamico_v8():
     df_lck = df_lol[df_lol['league'] == 'LCK'].copy()
     df_times = df_lck[df_lck['position'] == 'team'].copy()
     
-    # NOVAS MÉTRICAS DE EARLY GAME E SANGUE (V8)
     cols = ['gameid', 'date', 'teamname', 'side', 'result', 'patch', 'playoffs', 'dragons', 'gamelength', 'game', 'firstblood', 'ckpm']
     
     tem_gd15 = 'golddiffat15' in df_times.columns
@@ -96,7 +95,6 @@ def treinar_motor_dinamico_v8():
 
     df_limpo = df_times[cols].copy()
     
-    # Limpeza de dados numéricos
     df_limpo['dragons'] = pd.to_numeric(df_limpo['dragons'], errors='coerce').fillna(0)
     df_limpo['game'] = pd.to_numeric(df_limpo['game'], errors='coerce').fillna(1)
     df_limpo['firstblood'] = pd.to_numeric(df_limpo['firstblood'], errors='coerce').fillna(0)
@@ -106,30 +104,25 @@ def treinar_motor_dinamico_v8():
     
     df_limpo['date'] = pd.to_datetime(df_limpo['date'], utc=True)
     
-    # --- A MÁGICA DO MOMENTUM ---
     df_limpo['data_curta'] = df_limpo['date'].dt.date
     df_limpo = df_limpo.sort_values(['teamname', 'date'])
     df_limpo['momentum'] = df_limpo.groupby(['teamname', 'data_curta'])['result'].shift(1).fillna(0.5)
     
-    # Dragões e Tempo
     df_limpo['total_dragons_partida'] = df_limpo.groupby('gameid')['dragons'].transform('sum')
     df_limpo['opp_dragons'] = df_limpo['total_dragons_partida'] - df_limpo['dragons']
     
     df_limpo['over_4_dragons'] = (df_limpo['total_dragons_partida'] > 4).astype(int)
     df_limpo['mais_dragons'] = (df_limpo['dragons'] > df_limpo['opp_dragons']).astype(int)
     
-    # Reordenar por data
     df_limpo = df_limpo.sort_values('date')
     
     df_limpo['patch'] = df_limpo['patch'].astype(str).str.extract(r'(\d+\.\d+)')[0]
     df_limpo['patch'] = df_limpo['patch'].str.replace('^16\.', '26.', regex=True)
     
-    # MÉDIAS HISTÓRICAS (O ADN DAS EQUIPAS COM RECENCY BIAS)
     metricas_medias = ['result', 'mais_dragons', 'dragons', 'firstblood', 'ckpm']
     if tem_gd15: metricas_medias.append('golddiffat15')
 
     for col in metricas_medias:
-        # Usando a média das últimas 10 partidas para focar no momento atual
         df_limpo[f'media_{col}'] = df_limpo.groupby('teamname')[col].transform(lambda x: x.shift(1).rolling(10, min_periods=1).mean()).fillna(0.5)
 
     df_azul = df_limpo[df_limpo['side'] == 'Blue'].copy().add_suffix('_blue').rename(columns={'gameid_blue': 'gameid'})
@@ -142,7 +135,6 @@ def treinar_motor_dinamico_v8():
     
     X = df_p[features]
     
-    # Treino dos Modelos
     m_vit = RandomForestClassifier(n_estimators=200, max_depth=6, random_state=42).fit(X, df_p['result_blue'])
     m_dra = RandomForestClassifier(n_estimators=200, max_depth=6, random_state=42).fit(X, df_p['mais_dragons_blue'])
     m_tot_dra = RandomForestClassifier(n_estimators=200, max_depth=6, random_state=42).fit(X, df_p['over_4_dragons_blue'])
@@ -163,24 +155,24 @@ def treinar_motor_dinamico_v8():
 # --- BOTÃO DE ATUALIZAÇÃO MANUAL ---
 col_t, col_b = st.columns([3, 1])
 with col_t:
-    st.title("🏆 LoL Predictor PRO (v9.0 - Radar de Odds)")
+    st.title("🏆 LoL Predictor PRO (v10 - Predador PandaScore)")
 with col_b:
     st.write("")
-    if st.button("🔄 Atualizar Cache de Dados e Odds", type="primary"):
+    if st.button("🔄 Atualizar Cache de Dados e Radar", type="primary"):
         st.cache_resource.clear()
-        st.cache_data.clear() # Limpa a memória das odds
+        st.cache_data.clear() # Limpa a memória do radar
         st.rerun()
 
-with st.spinner("Conectando ao Oracle's Elixir e carregando Motor V9..."):
-    times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas, ultima_data_banco = treinar_motor_dinamico_v8()
+with st.spinner("Conectando ao Oracle's Elixir e carregando Motor V10..."):
+    times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas, ultima_data_banco = treinar_motor_dinamico_v10()
     
-# --- EXECUTA A BUSCA DE ODDS AO VIVO ---
-with st.spinner("O Cão Farejador está procurando jogos em casas de apostas globais..."):
-    odds_ao_vivo = buscar_odds_ao_vivo(odds_api_key)
+# --- EXECUTA A BUSCA DE JOGOS AO VIVO ---
+with st.spinner("O Cão Farejador está procurando jogos oficiais na PandaScore..."):
+    jogos_pandascore = buscar_jogos_pandascore(pandascore_key)
 
 # --- SELO DE ATUALIZAÇÃO ---
-status_api = "🟢 Online" if odds_api_key else "🔴 Aguardando Chave API"
-st.caption(f"✅ **Inteligência Ativa.** Última partida da LCK: **{ultima_data_banco}** | 📡 **Radar de Odds:** {status_api}")
+status_api = "🟢 Online" if pandascore_key else "🔴 Aguardando Chave API"
+st.caption(f"✅ **Inteligência Ativa.** Última partida da LCK: **{ultima_data_banco}** | 🐼 **Radar PandaScore:** {status_api}")
 st.markdown("---")
 
 aba1, aba2, aba3 = st.tabs(["🤖 Previsões, Tendências & Radar", "💰 Gestão de Banca", "📊 Diário de Apostas"])
@@ -205,7 +197,7 @@ with aba1:
     t_red = c2.selectbox("🟥 Lado Vermelho", times, index=1)
     linha_tempo_casa = c3.number_input("⏱️ Linha de Tempo", min_value=20.0, max_value=50.0, value=32.5, step=0.5)
     
-    if st.button("Analista Noturno: Prever Confronto e Farejar Odds", type="primary"):
+    if st.button("Analista Noturno: Prever Confronto e Farejar Jogos", type="primary"):
         if t_azul == t_red:
             st.error("Selecione times diferentes.")
         else:
@@ -228,9 +220,9 @@ with aba1:
                 m_tempo_dinamico = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42).fit(X_historico, df_partidas_local['alvo_tempo'])
                 prob_t_dinamica = m_tempo_dinamico.predict_proba(input_ia)[0]
                 
-                # --- O RADAR EM AÇÃO (BLINDADO E COM TRADUTOR) ---
-                odd_encontrada_a = None
-                odd_encontrada_r = None
+                # --- O RADAR PANDASCORE EM AÇÃO ---
+                jogo_confirmado = False
+                detalhes_radar = ""
                 
                 def obter_apelidos(nome_time):
                     nome = nome_time.lower()
@@ -247,29 +239,28 @@ with aba1:
                     if "nongshim" in nome or "ns" in nome: apelidos.extend(["nongshim", "redforce", "ns"])
                     return apelidos
 
-                if isinstance(odds_ao_vivo, list): # Só procura se a API devolveu uma lista válida
+                if isinstance(jogos_pandascore, list):
                     apelidos_a = obter_apelidos(t_azul)
                     apelidos_r = obter_apelidos(t_red)
                     
-                    for partida in odds_ao_vivo:
-                        # Se não for um dicionário (erro estranho da API), pula
+                    for partida in jogos_pandascore:
                         if not isinstance(partida, dict): continue
                         
-                        home = partida.get('home_team', '').lower()
-                        away = partida.get('away_team', '').lower()
-                        
-                        match_a = any(apelido in home or apelido in away for apelido in apelidos_a)
-                        match_r = any(apelido in home or apelido in away for apelido in apelidos_r)
-                        
-                        if match_a and match_r:
-                            for bookmaker in partida.get('bookmakers', []):
-                                for market in bookmaker.get('markets', []):
-                                    if market['key'] == 'h2h':
-                                        for outcome in market['outcomes']:
-                                            nome_out = outcome['name'].lower()
-                                            if any(ap in nome_out for ap in apelidos_a): odd_encontrada_a = outcome['price']
-                                            if any(ap in nome_out for ap in apelidos_r): odd_encontrada_r = outcome['price']
-                                        break
+                        ops = partida.get('opponents', [])
+                        if len(ops) == 2:
+                            t1 = ops[0].get('opponent', {}).get('name', '').lower()
+                            t2 = ops[1].get('opponent', {}).get('name', '').lower()
+                            
+                            match_a = any(apelido in t1 or apelido in t2 for apelido in apelidos_a)
+                            match_r = any(apelido in t1 or apelido in t2 for apelido in apelidos_r)
+                            
+                            if match_a and match_r:
+                                jogo_confirmado = True
+                                inicio = partida.get('begin_at', 'Horário não definido')
+                                torneio = partida.get('league', {}).get('name', 'Torneio Oficial')
+                                serie = partida.get('serie', {}).get('full_name', '')
+                                detalhes_radar = f"🎮 **Competição:** {torneio} {serie}\n⏰ **Início Previsto:** {inicio[:10]} às {inicio[11:16]} (Horário UTC)"
+                                break
 
                 st.session_state['analise_salva'] = True
                 st.session_state['dados_analise'] = {
@@ -280,44 +271,38 @@ with aba1:
                     'prob_t': prob_t_dinamica,
                     'peso_ia': df_peso_ia,
                     's_a': s_a, 's_r': s_r,
-                    'odd_a': odd_encontrada_a,
-                    'odd_r': odd_encontrada_r
+                    'achou_jogo': jogo_confirmado,
+                    'detalhes': detalhes_radar
                 }
 
     if st.session_state['analise_salva']:
         mem = st.session_state['dados_analise']
         
-        # --- PAINEL: CÃO FAREJADOR ---
-        if odds_api_key:
-            st.markdown("### 📡 Radar de Odds Globais (Vencedor)")
+        # --- PAINEL: CÃO FAREJADOR PANDASCORE ---
+        if pandascore_key:
+            st.markdown("### 🐼 Radar eSports PandaScore")
             
-            if mem['odd_a'] and mem['odd_r']:
-                st.success(f"Jogo encontrado no mercado! Odds: **{mem['t_azul']} ({mem['odd_a']})** vs **{mem['t_red']} ({mem['odd_r']})**")
-                ev_a = ((mem['prob_v'][1] * mem['odd_a']) - 1) * 100
-                ev_r = ((mem['prob_v'][0] * mem['odd_r']) - 1) * 100
-                
-                rad1, rad2 = st.columns(2)
-                with rad1:
-                    if ev_a > 0: st.info(f"🔥 VANTAGEM NA **{mem['t_azul']}** (+{ev_a:.2f}%)")
-                    else: st.error(f"🛑 {mem['t_azul']} sem valor (-EV)")
-                with rad2:
-                    if ev_r > 0: st.info(f"🔥 VANTAGEM NA **{mem['t_red']}** (+{ev_r:.2f}%)")
-                    else: st.error(f"🛑 {mem['t_red']} sem valor (-EV)")
+            if mem['achou_jogo']:
+                st.success(f"✅ **Jogo Oficial Detectado no Radar!** O confronto é real e está mapeado para as próximas horas.\n\n{mem['detalhes']}")
             else:
-                st.warning("⚠️ Jogo não listado nas casas mapeadas neste exato momento (ou a linha já fechou).")
+                st.warning("⚠️ O jogo não foi encontrado na base global da PandaScore para os próximos 2 dias. Verifique se as equipes realmente jogam em breve.")
             
-            # --- MODO RAIO-X BLINDADO ---
-            with st.expander("🛠️ Modo Raio-X (Diagnóstico da API)"):
-                if isinstance(odds_ao_vivo, list):
-                    if len(odds_ao_vivo) == 0:
-                        st.write("A API não enviou NENHUM jogo de LoL neste momento.")
+            # --- MODO RAIO-X PANDASCORE ---
+            with st.expander("🛠️ Modo Raio-X (Últimos Jogos Detectados)"):
+                if isinstance(jogos_pandascore, list):
+                    if len(jogos_pandascore) == 0:
+                        st.write("A API não enviou NENHUM jogo futuro no momento.")
                     else:
-                        st.write(f"A API listou {len(odds_ao_vivo)} jogos no mundo:")
-                        for p in odds_ao_vivo:
+                        st.write(f"A PandaScore listou {len(jogos_pandascore)} jogos oficiais (Exibindo os primeiros 10):")
+                        for p in jogos_pandascore[:10]:
                             if isinstance(p, dict):
-                                st.write(f"🎮 {p.get('home_team', '?')} vs {p.get('away_team', '?')}")
-                else:
-                    st.error(f"Erro da API (Cota estourada ou Região Inválida): {odds_ao_vivo}")
+                                ops = p.get('opponents', [])
+                                if len(ops) == 2:
+                                    t1 = ops[0].get('opponent', {}).get('name', '?')
+                                    t2 = ops[1].get('opponent', {}).get('name', '?')
+                                    st.write(f"🎮 {t1} vs {t2} - *{p.get('league', {}).get('name', 'Torneio')}*")
+                elif isinstance(jogos_pandascore, dict) and "erro" in jogos_pandascore:
+                    st.error(f"Erro da API PandaScore: {jogos_pandascore['mensagem']}")
             st.markdown("---")
 
         # --- PAINEL DE TENDÊNCIAS (V8) ---
@@ -361,6 +346,7 @@ with aba1:
         st.markdown("---")
         st.subheader("🔍 Raio-X do Vencedor (Peso das Variáveis)")
         st.bar_chart(mem['peso_ia'])
+
 # --- ABA 2: CALCULADORA KELLY ---
 with aba2:
     st.subheader("Calculadora Avançada de Stake (Com Trava de Plataforma)")
