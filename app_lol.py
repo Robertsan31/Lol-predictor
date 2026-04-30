@@ -41,7 +41,7 @@ def buscar_odds_ao_vivo(api_key):
     if not api_key:
         return None
     # Adicionamos uk e au na url para garantir que pega todas as casas globais (Bet365 inclusa)
-    url = f"https://api.the-odds-api.com/v4/sports/esports_league_of_legends/odds/?apiKey={api_key}&regions=eu,us,uk,au&markets=h2h&oddsFormat=decimal"
+    url = f"https://api.the-odds-api.com/v4/sports/esports_league_of_legends/odds/?apiKey={api_key}&regions=eu,us&markets=h2h&oddsFormat=decimal"
     try:
         res = requests.get(url, timeout=10)
         if res.status_code == 200:
