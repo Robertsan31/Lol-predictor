@@ -11,9 +11,9 @@ import io
 # --- IMPORTAÇÕES NOVAS PARA A IA LER IMAGENS ---
 import google.generativeai as genai
 
-st.set_page_config(page_title="LoL Predictor PRO v8", layout="wide")
+st.set_page_config(page_title="LoL Predictor PRO v9", layout="wide")
 
-# --- CONECTANDO O CÉREBRO DO GEMINI (SCANNER) ---
+# --- CONECTANDO O CÉREBRO DO GEMINI (SCANNER) E DA ODDS API ---
 api_ativa = False
 if "GEMINI_API_KEY" in st.secrets:
     try:
@@ -24,6 +24,9 @@ if "GEMINI_API_KEY" in st.secrets:
 else:
     print("Atenção: GEMINI_API_KEY não encontrada nos Secrets do Streamlit.")
 
+# Chave secreta da The Odds API
+odds_api_key = st.secrets.get("ODDS_API_KEY", None)
+
 # --- MEMÓRIA DO DIÁRIO DE APOSTAS E DA ANÁLISE ---
 if 'diario_apostas' not in st.session_state:
     st.session_state['diario_apostas'] = pd.DataFrame(columns=[
@@ -32,7 +35,21 @@ if 'diario_apostas' not in st.session_state:
 if 'analise_salva' not in st.session_state:
     st.session_state['analise_salva'] = False
 
-# --- MOTOR DA INTELIGÊNCIA ARTIFICIAL (V8.0 - TENDÊNCIAS PRÉ-JOGO) ---
+# --- NOVO: O CÃO FAREJADOR (BUSCA DE ODDS AO VIVO) ---
+@st.cache_data(ttl=3600) # Guarda o resultado por 1 hora para economizar cota (500/mês)
+def buscar_odds_ao_vivo(api_key):
+    if not api_key:
+        return None
+    url = f"https://api.the-odds-api.com/v4/sports/esports_league_of_legends/odds/?apiKey={api_key}&regions=eu,us&markets=h2h&oddsFormat=decimal"
+    try:
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            return res.json()
+        return None
+    except:
+        return None
+
+# --- MOTOR DA INTELIGÊNCIA ARTIFICIAL (V9.0 - TENDÊNCIAS E ODDS) ---
 @st.cache_resource(show_spinner=False)
 def treinar_motor_dinamico_v8():
     filenames = [
@@ -53,14 +70,12 @@ def treinar_motor_dinamico_v8():
             # 1. TENTA LER O ARQUIVO LOCAL PRIMEIRO (O que você subiu no GitHub)
             df_temp = pd.read_csv(nome_arq, low_memory=False)
             dfs.append(df_temp)
-            print(f"✅ Lendo arquivo local: {nome_arq}")
         except Exception:
             # 2. SE NÃO ACHAR LOCAL, TENTA BAIXAR
             try:
                 res = requests.get(urls[nome_arq], headers=headers, timeout=10)
                 if res.status_code == 200:
                     dfs.append(pd.read_csv(io.StringIO(res.text), low_memory=False))
-                    print(f"🌐 Baixado da internet: {nome_arq}")
             except:
                 pass
 
@@ -146,23 +161,29 @@ def treinar_motor_dinamico_v8():
 # --- BOTÃO DE ATUALIZAÇÃO MANUAL ---
 col_t, col_b = st.columns([3, 1])
 with col_t:
-    st.title("🏆 LoL Predictor PRO (v8.0 - Pré-Jogo & Vision)")
+    st.title("🏆 LoL Predictor PRO (v9.0 - Radar de Odds)")
 with col_b:
     st.write("")
-    if st.button("🔄 Forçar Leitura", type="primary"):
+    if st.button("🔄 Atualizar Cache de Dados e Odds", type="primary"):
         st.cache_resource.clear()
+        st.cache_data.clear() # Limpa a memória das odds
         st.rerun()
 
-with st.spinner("Conectando ao Oracle's Elixir e carregando Motor V8..."):
+with st.spinner("Conectando ao Oracle's Elixir e carregando Motor V9..."):
     times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas, ultima_data_banco = treinar_motor_dinamico_v8()
+    
+# --- EXECUTA A BUSCA DE ODDS AO VIVO ---
+with st.spinner("O Cão Farejador está procurando jogos em casas de apostas globais..."):
+    odds_ao_vivo = buscar_odds_ao_vivo(odds_api_key)
 
 # --- SELO DE ATUALIZAÇÃO ---
-st.caption(f"✅ **Inteligência V8 Ativa.** Última partida da LCK registrada: **{ultima_data_banco}**")
+status_api = "🟢 Online" if odds_api_key else "🔴 Aguardando Chave API"
+st.caption(f"✅ **Inteligência Ativa.** Última partida da LCK: **{ultima_data_banco}** | 📡 **Radar de Odds:** {status_api}")
 st.markdown("---")
 
-aba1, aba2, aba3 = st.tabs(["🤖 Previsões & Tendências", "💰 Gestão de Banca", "📊 Diário de Apostas"])
+aba1, aba2, aba3 = st.tabs(["🤖 Previsões, Tendências & Radar", "💰 Gestão de Banca", "📊 Diário de Apostas"])
 
-# --- ABA 1: PREVISÕES ---
+# --- ABA 1: PREVISÕES E RADAR DE ODDS ---
 with aba1:
     col_p, col_m, col_map, col_win = st.columns(4)
     p_atual = col_p.selectbox("🛠️ Patch", patches)
@@ -184,7 +205,7 @@ with aba1:
     t_red = c2.selectbox("🟥 Lado Vermelho", times, index=1)
     linha_tempo_casa = c3.number_input("⏱️ Linha de Tempo", min_value=20.0, max_value=50.0, value=32.5, step=0.5)
     
-    if st.button("Analista Noturno: Prever Confronto", type="primary"):
+    if st.button("Analista Noturno: Prever Confronto e Farejar Odds", type="primary"):
         if t_azul == t_red:
             st.error("Selecione times diferentes.")
         else:
@@ -209,6 +230,31 @@ with aba1:
                 m_tempo_dinamico = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42).fit(X_historico, df_partidas_local['alvo_tempo'])
                 prob_t_dinamica = m_tempo_dinamico.predict_proba(input_ia)[0]
                 
+                # --- O RADAR EM AÇÃO ---
+                odd_encontrada_a = None
+                odd_encontrada_r = None
+                
+                if odds_ao_vivo:
+                    # Tenta encontrar o jogo pelo nome dos times
+                    kw_a = t_azul.split()[0].lower() # Ex: 'T1'
+                    kw_r = t_red.split()[0].lower()  # Ex: 'Gen.G'
+                    
+                    for partida in odds_ao_vivo:
+                        home = partida.get('home_team', '').lower()
+                        away = partida.get('away_team', '').lower()
+                        
+                        if (kw_a in home or kw_a in away) and (kw_r in home or kw_r in away):
+                            # Se achou o jogo, pega as odds do primeiro bookmaker (geralmente Pinnacle ou similar)
+                            for bookmaker in partida.get('bookmakers', []):
+                                for market in bookmaker.get('markets', []):
+                                    if market['key'] == 'h2h': # h2h = Head to Head (Vencedor)
+                                        for outcome in market['outcomes']:
+                                            if kw_a in outcome['name'].lower():
+                                                odd_encontrada_a = outcome['price']
+                                            if kw_r in outcome['name'].lower():
+                                                odd_encontrada_r = outcome['price']
+                                        break # Sai depois de achar o h2h
+
                 st.session_state['analise_salva'] = True
                 st.session_state['dados_analise'] = {
                     't_azul': t_azul, 't_red': t_red, 'mapa': num_mapa, 'linha_t': linha_tempo_casa,
@@ -217,13 +263,40 @@ with aba1:
                     'prob_td': m_tot_dra.predict_proba(input_ia)[0],
                     'prob_t': prob_t_dinamica,
                     'peso_ia': df_peso_ia,
-                    's_a': s_a, 's_r': s_r
+                    's_a': s_a, 's_r': s_r,
+                    'odd_a': odd_encontrada_a,
+                    'odd_r': odd_encontrada_r
                 }
 
     if st.session_state['analise_salva']:
         mem = st.session_state['dados_analise']
         
-        # --- PAINEL DE TENDÊNCIAS (NOVIDADE V8) ---
+        # --- NOVO PAINEL: CÃO FAREJADOR ---
+        if odds_api_key:
+            st.markdown("### 📡 Radar de Odds Globais (Vencedor)")
+            if mem['odd_a'] and mem['odd_r']:
+                st.success(f"Jogo encontrado no mercado mundial! Odds Base: **{mem['t_azul']} ({mem['odd_a']})** vs **{mem['t_red']} ({mem['odd_r']})**")
+                
+                # Calcula o Valor Esperado Automático
+                ev_a = ((mem['prob_v'][1] * mem['odd_a']) - 1) * 100
+                ev_r = ((mem['prob_v'][0] * mem['odd_r']) - 1) * 100
+                
+                rad1, rad2 = st.columns(2)
+                with rad1:
+                    if ev_a > 0:
+                        st.info(f"🔥 VANTAGEM MATEMÁTICA NA **{mem['t_azul']}** (+{ev_a:.2f}%)")
+                    else:
+                        st.error(f"🛑 Odd da {mem['t_azul']} sem valor (-EV)")
+                with rad2:
+                    if ev_r > 0:
+                        st.info(f"🔥 VANTAGEM MATEMÁTICA NA **{mem['t_red']}** (+{ev_r:.2f}%)")
+                    else:
+                        st.error(f"🛑 Odd da {mem['t_red']} sem valor (-EV)")
+            else:
+                st.warning("⚠️ Jogo não listado nas casas mapeadas neste exato momento (ou a linha já fechou).")
+            st.markdown("---")
+
+        # --- PAINEL DE TENDÊNCIAS (V8) ---
         st.markdown("### 🔮 Dicas Pré-Jogo (Leia na noite anterior!)")
         dica_col1, dica_col2 = st.columns(2)
         
@@ -263,7 +336,7 @@ with aba1:
         t2.metric(f"Under {mem['linha_t']} min", f"{mem['prob_t'][0]*100:.1f}%")
 
         st.markdown("---")
-        st.subheader("🔍 Raio-X do Vencedor (Peso das Variáveis V8)")
+        st.subheader("🔍 Raio-X do Vencedor (Peso das Variáveis)")
         st.bar_chart(mem['peso_ia'])
 
 # --- ABA 2: CALCULADORA KELLY ---
