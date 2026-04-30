@@ -11,7 +11,7 @@ import io
 # --- IMPORTAÇÕES NOVAS PARA A IA LER IMAGENS ---
 import google.generativeai as genai
 
-st.set_page_config(page_title="LoL Predictor PRO v10", layout="wide")
+st.set_page_config(page_title="LoL Predictor PRO v11", layout="wide")
 
 # --- CONECTANDO O CÉREBRO DO GEMINI (SCANNER) E PANDASCORE ---
 api_ativa = False
@@ -24,7 +24,7 @@ if "GEMINI_API_KEY" in st.secrets:
 else:
     print("Atenção: GEMINI_API_KEY não encontrada nos Secrets do Streamlit.")
 
-# Chave secreta da PandaScore (Tenta pegar PANDASCORE_API_KEY, se não achar, tenta a antiga)
+# Chave secreta da PandaScore
 pandascore_key = st.secrets.get("PANDASCORE_API_KEY", st.secrets.get("ODDS_API_KEY", None))
 
 # --- MEMÓRIA DO DIÁRIO DE APOSTAS E DA ANÁLISE ---
@@ -35,27 +35,23 @@ if 'diario_apostas' not in st.session_state:
 if 'analise_salva' not in st.session_state:
     st.session_state['analise_salva'] = False
 
-# --- NOVO: O CÃO FAREJADOR (BUSCA DE JOGOS PANDASCORE) ---
+# --- O CÃO FAREJADOR (BUSCA DE JOGOS PANDASCORE) ---
 @st.cache_data(ttl=1800) # Guarda o resultado por 30 minutos
 def buscar_jogos_pandascore(api_key):
-    if not api_key:
-        return None
-    
+    if not api_key: return None
     url = "https://api.pandascore.co/lol/matches/upcoming"
     headers = {"Authorization": f"Bearer {api_key}"}
-    
     try:
         res = requests.get(url, headers=headers, timeout=10)
         if res.status_code == 200:
             return res.json()
-        else:
-            return {"erro": res.status_code, "mensagem": res.text}
+        return {"erro": res.status_code, "mensagem": res.text}
     except Exception as e:
         return {"erro": "Exception", "mensagem": str(e)}
 
-# --- MOTOR DA INTELIGÊNCIA ARTIFICIAL (V10) ---
+# --- MOTOR DA INTELIGÊNCIA ARTIFICIAL (V11) ---
 @st.cache_resource(show_spinner=False)
-def treinar_motor_dinamico_v10():
+def treinar_motor_dinamico_v11():
     filenames = [
         "2025_LoL_esports_match_data_from_OraclesElixir.csv",
         "2026_LoL_esports_match_data_from_OraclesElixir.csv"
@@ -66,118 +62,91 @@ def treinar_motor_dinamico_v10():
         "2026_LoL_esports_match_data_from_OraclesElixir.csv": "https://oracleselixir-downloadable-files.s3-us-west-2.amazonaws.com/2026_LoL_esports_match_data_from_OraclesElixir.csv"
     }
     
-    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://oracleselixir.com/"}
+    headers = {"User-Agent": "Mozilla/5.0"}
     dfs = []
 
     for nome_arq in filenames:
         try:
-            df_temp = pd.read_csv(nome_arq, low_memory=False)
-            dfs.append(df_temp)
+            dfs.append(pd.read_csv(nome_arq, low_memory=False))
         except Exception:
             try:
                 res = requests.get(urls[nome_arq], headers=headers, timeout=10)
                 if res.status_code == 200:
                     dfs.append(pd.read_csv(io.StringIO(res.text), low_memory=False))
-            except:
-                pass
+            except: pass
 
-    if not dfs:
-        return [], [], pd.DataFrame(), None, None, None, None, pd.DataFrame(), pd.DataFrame(), "Erro de Base"
+    if not dfs: return [], [], pd.DataFrame(), None, None, None, None, pd.DataFrame(), pd.DataFrame(), "Erro"
 
     df_lol = pd.concat(dfs, ignore_index=True)
     df_lck = df_lol[df_lol['league'] == 'LCK'].copy()
     df_times = df_lck[df_lck['position'] == 'team'].copy()
     
     cols = ['gameid', 'date', 'teamname', 'side', 'result', 'patch', 'playoffs', 'dragons', 'gamelength', 'game', 'firstblood', 'ckpm']
-    
     tem_gd15 = 'golddiffat15' in df_times.columns
     if tem_gd15: cols.append('golddiffat15')
 
     df_limpo = df_times[cols].copy()
-    
     df_limpo['dragons'] = pd.to_numeric(df_limpo['dragons'], errors='coerce').fillna(0)
     df_limpo['game'] = pd.to_numeric(df_limpo['game'], errors='coerce').fillna(1)
     df_limpo['firstblood'] = pd.to_numeric(df_limpo['firstblood'], errors='coerce').fillna(0)
     df_limpo['ckpm'] = pd.to_numeric(df_limpo['ckpm'], errors='coerce').fillna(0.7)
-    if tem_gd15:
-        df_limpo['golddiffat15'] = pd.to_numeric(df_limpo['golddiffat15'], errors='coerce').fillna(0)
+    if tem_gd15: df_limpo['golddiffat15'] = pd.to_numeric(df_limpo['golddiffat15'], errors='coerce').fillna(0)
     
     df_limpo['date'] = pd.to_datetime(df_limpo['date'], utc=True)
-    
     df_limpo['data_curta'] = df_limpo['date'].dt.date
     df_limpo = df_limpo.sort_values(['teamname', 'date'])
     df_limpo['momentum'] = df_limpo.groupby(['teamname', 'data_curta'])['result'].shift(1).fillna(0.5)
     
     df_limpo['total_dragons_partida'] = df_limpo.groupby('gameid')['dragons'].transform('sum')
     df_limpo['opp_dragons'] = df_limpo['total_dragons_partida'] - df_limpo['dragons']
-    
     df_limpo['over_4_dragons'] = (df_limpo['total_dragons_partida'] > 4).astype(int)
     df_limpo['mais_dragons'] = (df_limpo['dragons'] > df_limpo['opp_dragons']).astype(int)
-    
     df_limpo = df_limpo.sort_values('date')
-    
     df_limpo['patch'] = df_limpo['patch'].astype(str).str.extract(r'(\d+\.\d+)')[0]
     df_limpo['patch'] = df_limpo['patch'].str.replace('^16\.', '26.', regex=True)
     
-    metricas_medias = ['result', 'mais_dragons', 'dragons', 'firstblood', 'ckpm']
-    if tem_gd15: metricas_medias.append('golddiffat15')
+    metricas = ['result', 'mais_dragons', 'dragons', 'firstblood', 'ckpm']
+    if tem_gd15: metricas.append('golddiffat15')
 
-    for col in metricas_medias:
+    for col in metricas:
         df_limpo[f'media_{col}'] = df_limpo.groupby('teamname')[col].transform(lambda x: x.shift(1).rolling(10, min_periods=1).mean()).fillna(0.5)
 
     df_azul = df_limpo[df_limpo['side'] == 'Blue'].copy().add_suffix('_blue').rename(columns={'gameid_blue': 'gameid'})
     df_vermelho = df_limpo[df_limpo['side'] == 'Red'].copy().add_suffix('_red').rename(columns={'gameid_red': 'gameid'})
     df_p = pd.merge(df_azul, df_vermelho, on='gameid').dropna()
 
-    features = ['media_result_blue', 'media_mais_dragons_blue', 'media_dragons_blue', 'media_firstblood_blue', 'media_ckpm_blue',
-                'media_result_red', 'media_mais_dragons_red', 'media_dragons_red', 'media_firstblood_red', 'media_ckpm_red', 
-                'playoffs_blue', 'game_blue', 'momentum_blue']
-    
-    X = df_p[features]
+    X = df_p[['media_result_blue', 'media_mais_dragons_blue', 'media_dragons_blue', 'media_firstblood_blue', 'media_ckpm_blue',
+              'media_result_red', 'media_mais_dragons_red', 'media_dragons_red', 'media_firstblood_red', 'media_ckpm_red', 
+              'playoffs_blue', 'game_blue', 'momentum_blue']]
     
     m_vit = RandomForestClassifier(n_estimators=200, max_depth=6, random_state=42).fit(X, df_p['result_blue'])
     m_dra = RandomForestClassifier(n_estimators=200, max_depth=6, random_state=42).fit(X, df_p['mais_dragons_blue'])
     m_tot_dra = RandomForestClassifier(n_estimators=200, max_depth=6, random_state=42).fit(X, df_p['over_4_dragons_blue'])
     
     importancias = m_vit.feature_importances_
-    nomes_variaveis = ['BL - WinRate', 'BL - +Dragões', 'BL - Média Drags', 'BL - FirstBlood%', 'BL - Banho de Sangue',
-                       'RED - WinRate', 'RED - +Dragões', 'RED - Média Drags', 'RED - FirstBlood%', 'RED - Banho de Sangue', 
-                       'MD5', 'Nº Mapa', 'Momentum']
-    df_peso_ia = pd.DataFrame({'Peso na Decisão (%)': importancias * 100}, index=nomes_variaveis)
+    df_peso_ia = pd.DataFrame({'Peso (%)': importancias * 100}, index=['BL-Win', 'BL-+Drags', 'BL-Média', 'BL-FB%', 'BL-Kills', 'RED-Win', 'RED-+Drags', 'RED-Média', 'RED-FB%', 'RED-Kills', 'MD5', 'Mapa', 'Momento'])
     
-    lista_times = sorted(df_limpo['teamname'].unique())
-    lista_patches = sorted(df_limpo['patch'].dropna().unique(), reverse=True)
-    ultimos_dados = df_limpo.groupby(['teamname', 'patch']).last().reset_index()
-    ultima_data = df_limpo['date'].max().strftime("%d/%m/%Y")
-    
-    return lista_times, lista_patches, ultimos_dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X, df_p, ultima_data
+    return sorted(df_limpo['teamname'].unique()), sorted(df_limpo['patch'].dropna().unique(), reverse=True), df_limpo.groupby(['teamname', 'patch']).last().reset_index(), m_vit, m_dra, m_tot_dra, df_peso_ia, X, df_p, df_limpo['date'].max().strftime("%d/%m/%Y")
 
-# --- BOTÃO DE ATUALIZAÇÃO MANUAL ---
 col_t, col_b = st.columns([3, 1])
 with col_t:
-    st.title("🏆 LoL Predictor PRO (v10 - Predador PandaScore)")
+    st.title("🏆 LoL Predictor PRO (v11 - Radar de Odds Automático)")
 with col_b:
     st.write("")
     if st.button("🔄 Atualizar Cache de Dados e Radar", type="primary"):
         st.cache_resource.clear()
-        st.cache_data.clear() # Limpa a memória do radar
+        st.cache_data.clear() 
         st.rerun()
 
-with st.spinner("Conectando ao Oracle's Elixir e carregando Motor V10..."):
-    times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas, ultima_data_banco = treinar_motor_dinamico_v10()
-    
-# --- EXECUTA A BUSCA DE JOGOS AO VIVO ---
-with st.spinner("O Cão Farejador está procurando jogos oficiais na PandaScore..."):
+with st.spinner("Sincronizando com a PandaScore..."):
+    times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas, ultima_data_banco = treinar_motor_dinamico_v11()
     jogos_pandascore = buscar_jogos_pandascore(pandascore_key)
 
-# --- SELO DE ATUALIZAÇÃO ---
-status_api = "🟢 Online" if pandascore_key else "🔴 Aguardando Chave API"
-st.caption(f"✅ **Inteligência Ativa.** Última partida da LCK: **{ultima_data_banco}** | 🐼 **Radar PandaScore:** {status_api}")
+st.caption(f"✅ **IA Ativa.** Último jogo da LCK: **{ultima_data_banco}** | 🐼 **Radar PandaScore:** {'Online' if pandascore_key else 'Aguardando Chave'}")
 st.markdown("---")
 
 aba1, aba2, aba3 = st.tabs(["🤖 Previsões, Tendências & Radar", "💰 Gestão de Banca", "📊 Diário de Apostas"])
 
-# --- ABA 1: PREVISÕES E RADAR DE ODDS ---
 with aba1:
     col_p, col_m, col_map, col_win = st.columns(4)
     p_atual = col_p.selectbox("🛠️ Patch", patches)
@@ -197,18 +166,16 @@ with aba1:
     t_red = c2.selectbox("🟥 Lado Vermelho", times, index=1)
     linha_tempo_casa = c3.number_input("⏱️ Linha de Tempo", min_value=20.0, max_value=50.0, value=32.5, step=0.5)
     
-    if st.button("Analista Noturno: Prever Confronto e Farejar Jogos", type="primary"):
+    if st.button("Analista Noturno: Prever Confronto e Farejar Odds", type="primary"):
         if t_azul == t_red:
             st.error("Selecione times diferentes.")
         else:
             s_a = dados[(dados['teamname'] == t_azul)]
             s_r = dados[(dados['teamname'] == t_red)]
             
-            if s_a.empty or s_r.empty:
-                st.error("Faltam dados destas equipas neste patch.")
+            if s_a.empty or s_r.empty: st.error("Faltam dados destas equipas neste patch.")
             else:
-                s_a = s_a.iloc[[-1]]
-                s_r = s_r.iloc[[-1]]
+                s_a, s_r = s_a.iloc[[-1]], s_r.iloc[[-1]]
                 
                 input_ia = [[s_a['media_result'].values[0], s_a['media_mais_dragons'].values[0], s_a['media_dragons'].values[0], s_a['media_firstblood'].values[0], s_a['media_ckpm'].values[0],
                              s_r['media_result'].values[0], s_r['media_mais_dragons'].values[0], s_r['media_dragons'].values[0], s_r['media_firstblood'].values[0], s_r['media_ckpm'].values[0],
@@ -218,11 +185,12 @@ with aba1:
                 df_partidas_local = df_partidas.copy()
                 df_partidas_local['alvo_tempo'] = (df_partidas_local['gamelength_blue'] > limite_segundos).astype(int)
                 m_tempo_dinamico = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42).fit(X_historico, df_partidas_local['alvo_tempo'])
-                prob_t_dinamica = m_tempo_dinamico.predict_proba(input_ia)[0]
                 
-                # --- O RADAR PANDASCORE EM AÇÃO ---
+                # --- O RADAR PANDASCORE COM ODDS ---
                 jogo_confirmado = False
                 detalhes_radar = ""
+                odd_encontrada_a = None
+                odd_encontrada_r = None
                 
                 def obter_apelidos(nome_time):
                     nome = nome_time.lower()
@@ -256,10 +224,32 @@ with aba1:
                             
                             if match_a and match_r:
                                 jogo_confirmado = True
+                                match_id = partida.get('id')
                                 inicio = partida.get('begin_at', 'Horário não definido')
                                 torneio = partida.get('league', {}).get('name', 'Torneio Oficial')
                                 serie = partida.get('serie', {}).get('full_name', '')
                                 detalhes_radar = f"🎮 **Competição:** {torneio} {serie}\n⏰ **Início Previsto:** {inicio[:10]} às {inicio[11:16]} (Horário UTC)"
+                                
+                                # NOVO: Ataque ao Servidor de Odds da PandaScore
+                                odd_url = f"https://api.pandascore.co/matches/{match_id}/odds"
+                                try:
+                                    res_odds = requests.get(odd_url, headers={"Authorization": f"Bearer {pandascore_key}"}, timeout=5)
+                                    if res_odds.status_code == 200:
+                                        odds_data = res_odds.json()
+                                        for provider in odds_data:
+                                            markets = provider.get('markets', []) if isinstance(provider, dict) else []
+                                            if not markets and 'choices' in provider: markets = [provider]
+                                            for market in markets:
+                                                nome_mercado = market.get('name', '').lower()
+                                                if 'winner' in nome_mercado or 'match' in nome_mercado or 'moneyline' in nome_mercado or not nome_mercado:
+                                                    for choice in market.get('choices', []):
+                                                        c_name = str(choice.get('name', '')).lower()
+                                                        val = choice.get('odd')
+                                                        if val:
+                                                            if any(ap in c_name for ap in apelidos_a): odd_encontrada_a = float(val)
+                                                            if any(ap in c_name for ap in apelidos_r): odd_encontrada_r = float(val)
+                                except:
+                                    pass
                                 break
 
                 st.session_state['analise_salva'] = True
@@ -268,41 +258,40 @@ with aba1:
                     'prob_v': m_vit.predict_proba(input_ia)[0],
                     'prob_d': m_dra.predict_proba(input_ia)[0],
                     'prob_td': m_tot_dra.predict_proba(input_ia)[0],
-                    'prob_t': prob_t_dinamica,
-                    'peso_ia': df_peso_ia,
-                    's_a': s_a, 's_r': s_r,
-                    'achou_jogo': jogo_confirmado,
-                    'detalhes': detalhes_radar
+                    'prob_t': m_tempo_dinamico.predict_proba(input_ia)[0],
+                    'peso_ia': df_peso_ia, 's_a': s_a, 's_r': s_r,
+                    'achou_jogo': jogo_confirmado, 'detalhes': detalhes_radar,
+                    'odd_a': odd_encontrada_a, 'odd_r': odd_encontrada_r
                 }
 
     if st.session_state['analise_salva']:
         mem = st.session_state['dados_analise']
         
-        # --- PAINEL: CÃO FAREJADOR PANDASCORE ---
+        # --- PAINEL: CÃO FAREJADOR PANDASCORE COM EV AUTOMÁTICO ---
         if pandascore_key:
-            st.markdown("### 🐼 Radar eSports PandaScore")
+            st.markdown("### 🐼 Radar eSports PandaScore & Odds")
             
             if mem['achou_jogo']:
-                st.success(f"✅ **Jogo Oficial Detectado no Radar!** O confronto é real e está mapeado para as próximas horas.\n\n{mem['detalhes']}")
+                if mem['odd_a'] and mem['odd_r']:
+                    st.success(f"✅ **Jogo Oficial e Odds Detectadas!**\n\n{mem['detalhes']}")
+                    st.info(f"💰 **Odds do Mercado Mundial:** {mem['t_azul']} ({mem['odd_a']}) vs {mem['t_red']} ({mem['odd_r']})")
+                    
+                    # Cálculo de +EV Automático
+                    ev_a = ((mem['prob_v'][1] * mem['odd_a']) - 1) * 100
+                    ev_r = ((mem['prob_v'][0] * mem['odd_r']) - 1) * 100
+                    
+                    rad1, rad2 = st.columns(2)
+                    with rad1:
+                        if ev_a > 0: st.success(f"🔥 VANTAGEM MATEMÁTICA NA **{mem['t_azul']}** (+{ev_a:.2f}%)")
+                        else: st.error(f"🛑 {mem['t_azul']} sem valor (-EV)")
+                    with rad2:
+                        if ev_r > 0: st.success(f"🔥 VANTAGEM MATEMÁTICA NA **{mem['t_red']}** (+{ev_r:.2f}%)")
+                        else: st.error(f"🛑 {mem['t_red']} sem valor (-EV)")
+                else:
+                    st.success(f"✅ **Jogo Oficial Detectado!**\n\n{mem['detalhes']}")
+                    st.warning("⚠️ **Aviso de Bookmaker:** O jogo está mapeado, mas as casas de apostas globais ainda não liberaram os números exatos das Odds para a PandaScore. Fique de olho mais perto da hora do jogo ou digite a odd manual na Calculadora ao lado.")
             else:
-                st.warning("⚠️ O jogo não foi encontrado na base global da PandaScore para os próximos 2 dias. Verifique se as equipes realmente jogam em breve.")
-            
-            # --- MODO RAIO-X PANDASCORE ---
-            with st.expander("🛠️ Modo Raio-X (Últimos Jogos Detectados)"):
-                if isinstance(jogos_pandascore, list):
-                    if len(jogos_pandascore) == 0:
-                        st.write("A API não enviou NENHUM jogo futuro no momento.")
-                    else:
-                        st.write(f"A PandaScore listou {len(jogos_pandascore)} jogos oficiais (Exibindo os primeiros 10):")
-                        for p in jogos_pandascore[:10]:
-                            if isinstance(p, dict):
-                                ops = p.get('opponents', [])
-                                if len(ops) == 2:
-                                    t1 = ops[0].get('opponent', {}).get('name', '?')
-                                    t2 = ops[1].get('opponent', {}).get('name', '?')
-                                    st.write(f"🎮 {t1} vs {t2} - *{p.get('league', {}).get('name', 'Torneio')}*")
-                elif isinstance(jogos_pandascore, dict) and "erro" in jogos_pandascore:
-                    st.error(f"Erro da API PandaScore: {jogos_pandascore['mensagem']}")
+                st.warning("⚠️ O jogo não foi encontrado na base global da PandaScore para as próximas horas.")
             st.markdown("---")
 
         # --- PAINEL DE TENDÊNCIAS (V8) ---
@@ -410,7 +399,6 @@ with aba2:
 with aba3:
     st.subheader("📊 Seu Diário de Apostas")
     
-    # --- SCANNER DE BILHETES ---
     st.markdown("### 📸 Scanner Automático de Bilhetes (OCR)")
     if not api_ativa:
         st.warning("⚠️ Chave do Gemini não encontrada nos Secrets do Streamlit.")
