@@ -238,7 +238,16 @@ with aba1:
                                 {"vencedor": "Azul" ou "Vermelho", "tempo_jogo": 30.5, "total_kills": 25}
                                 Se não conseguir ver algum dado exato, estime. Retorne apenas o JSON.
                                 """
-                                res_mom = genai.GenerativeModel('gemini-1.5-pro').generate_content([prompt_momentum, Image.open(img_m1)])
+                                
+                                # O CÃO FAREJADOR DE MODELOS DA SUA CHAVE
+                                modelos_permitidos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                                modelo_ideal = 'gemini-pro-vision' # Fallback para chave antiga
+                                for m in ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro-vision']:
+                                    if m in modelos_permitidos:
+                                        modelo_ideal = m.replace('models/', '')
+                                        break
+                                
+                                res_mom = genai.GenerativeModel(modelo_ideal).generate_content([prompt_momentum, Image.open(img_m1)])
                                 txt_json = res_mom.text.replace('```json', '').replace('```', '').strip()
                                 dados_m1 = json.loads(txt_json)
                                 
