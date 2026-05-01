@@ -11,7 +11,7 @@ import io
 # --- IMPORTAÇÕES NOVAS PARA A IA LER IMAGENS ---
 import google.generativeai as genai
 
-st.set_page_config(page_title="LoL Predictor PRO v12", layout="wide")
+st.set_page_config(page_title="LoL Predictor PRO v13", layout="wide")
 
 # --- CONECTANDO O CÉREBRO DO GEMINI (SCANNER) E PANDASCORE ---
 api_ativa = False
@@ -53,7 +53,7 @@ def buscar_jogos_pandascore(api_key):
     except Exception as e:
         return {"erro": "Exception", "mensagem": str(e)}
 
-# --- MOTOR DA INTELIGÊNCIA ARTIFICIAL (V12 - MERCADO DE KILLS) ---
+# --- MOTOR DA INTELIGÊNCIA ARTIFICIAL (V13 - MERCADO DE KILLS & MOMENTUM) ---
 @st.cache_resource(show_spinner=False)
 def treinar_motor_dinamico_v12():
     filenames = [
@@ -167,7 +167,7 @@ def treinar_motor_dinamico_v12():
 # --- BOTÃO DE ATUALIZAÇÃO MANUAL ---
 col_t, col_b = st.columns([3, 1])
 with col_t:
-    st.title("🏆 LoL Predictor PRO (v12 - Mercado de Kills)")
+    st.title("🏆 LoL Predictor PRO (v13 - Momentum Live)")
 with col_b:
     st.write("")
     if st.button("🔄 Atualizar Cache de Dados e Radar", type="primary"):
@@ -175,7 +175,7 @@ with col_b:
         st.cache_data.clear() # Limpa a memória do radar
         st.rerun()
 
-with st.spinner("Conectando ao Oracle's Elixir e carregando Motor V12..."):
+with st.spinner("Conectando ao Oracle's Elixir e carregando Motor V13..."):
     times, patches, dados, m_vit, m_dra, m_tot_dra, df_peso_ia, X_historico, df_partidas, ultima_data_banco = treinar_motor_dinamico_v12()
     
 # --- EXECUTA A BUSCA DE JOGOS AO VIVO ---
@@ -191,18 +191,75 @@ aba1, aba2, aba3 = st.tabs(["🤖 Previsões, Tendências & Radar", "💰 Gestã
 
 # --- ABA 1: PREVISÕES E RADAR DE ODDS ---
 with aba1:
-    col_p, col_m, col_map, col_win = st.columns(4)
+    col_p, col_m, col_map = st.columns([1, 1, 2])
     p_atual = col_p.selectbox("🛠️ Patch", patches)
     is_playoff = col_m.checkbox("⚠️ MD5 (Playoffs)?")
     num_mapa = col_map.selectbox("📍 Nº do Mapa", [1, 2, 3, 4, 5])
     
+    # --- SISTEMA DE MOMENTUM (V13) ---
     res_anterior = 0.5 
+    ajuste_win_azul = 0.0
+    ajuste_win_red = 0.0
+    ajuste_kills_over = 0.0
+    ajuste_tempo_over = 0.0
+
     if num_mapa > 1:
-        quem_ganhou = col_win.selectbox("Quem venceu o mapa anterior?", ["-", "🟦 Lado Azul", "🟥 Lado Vermelho"])
-        if quem_ganhou == "🟦 Lado Azul":
-            res_anterior = 1.0
-        elif quem_ganhou == "🟥 Lado Vermelho":
-            res_anterior = 0.0
+        st.markdown("### 🔥 Ajuste de Momentum (O que aconteceu no Mapa Anterior?)")
+        modo_momentum = st.radio("Como você quer enviar os dados do mapa anterior?", ["⌨️ Digitar Rápido (Se estiver na rua)", "📸 Enviar Print do Placar Final (Recomendado)"])
+        
+        if modo_momentum == "⌨️ Digitar Rápido (Se estiver na rua)":
+            col_m1, col_m2, col_m3 = st.columns(3)
+            quem_ganhou_m1 = col_m1.selectbox("Quem Venceu o mapa passado?", ["-", "🟦 Lado Azul", "🟥 Lado Vermelho"])
+            tempo_m1 = col_m2.number_input("Tempo do Jogo (Aprox. Minutos)", value=30.0, step=1.0)
+            kills_m1 = col_m3.number_input("Total de Kills no mapa passado", value=25, step=1)
+            
+            if quem_ganhou_m1 == "🟦 Lado Azul":
+                res_anterior = 1.0
+                ajuste_win_azul += 0.05
+                if tempo_m1 < 27: ajuste_win_azul += 0.08
+            elif quem_ganhou_m1 == "🟥 Lado Vermelho":
+                res_anterior = 0.0
+                ajuste_win_red += 0.05
+                if tempo_m1 < 27: ajuste_win_red += 0.08
+                
+            if kills_m1 > 32: ajuste_kills_over += 0.10
+            if tempo_m1 > 35: ajuste_tempo_over += 0.10
+            
+        else:
+            img_m1 = st.file_uploader("Suba o Print do Placar Final ou Draft da Twitch", type=['png', 'jpg', 'jpeg'])
+            if img_m1:
+                st.image(Image.open(img_m1), width=250)
+                if st.button("🪄 Extrair Momentum do Print", type="primary"):
+                    with st.spinner("Analisando o estrago do mapa anterior..."):
+                        if api_ativa:
+                            try:
+                                prompt_momentum = """
+                                Analise este placar final ou tabela de LoL. Responda APENAS em JSON puro no seguinte formato:
+                                {"vencedor": "Azul" ou "Vermelho", "tempo_jogo": 30.5, "total_kills": 25}
+                                Se não conseguir ver algum dado exato, estime. Retorne apenas o JSON.
+                                """
+                                res_mom = genai.GenerativeModel('gemini-1.5-flash').generate_content([prompt_momentum, Image.open(img_m1)])
+                                txt_json = res_mom.text.replace('```json', '').replace('```', '').strip()
+                                dados_m1 = json.loads(txt_json)
+                                
+                                st.success(f"✅ Lido! Vencedor: {dados_m1.get('vencedor', '?')}, Tempo: {dados_m1.get('tempo_jogo', 0)}m, Kills: {dados_m1.get('total_kills', 0)}")
+                                
+                                vencedor = str(dados_m1.get('vencedor', '')).lower()
+                                if "azul" in vencedor:
+                                    res_anterior = 1.0
+                                    ajuste_win_azul += 0.05
+                                    if float(dados_m1.get('tempo_jogo', 30)) < 27: ajuste_win_azul += 0.08
+                                elif "vermelho" in vencedor:
+                                    res_anterior = 0.0
+                                    ajuste_win_red += 0.05
+                                    if float(dados_m1.get('tempo_jogo', 30)) < 27: ajuste_win_red += 0.08
+                                    
+                                if float(dados_m1.get('total_kills', 20)) > 32: ajuste_kills_over += 0.10
+                                if float(dados_m1.get('tempo_jogo', 30)) > 35: ajuste_tempo_over += 0.10
+                            except Exception as e:
+                                st.error(f"Erro ao ler imagem: {e}. Use o modo manual.")
+                        else:
+                            st.warning("Chave Gemini não configurada.")
 
     st.markdown("---")
     
@@ -242,6 +299,23 @@ with aba1:
                 df_partidas_local['alvo_kills'] = (df_partidas_local['total_kills_partida_blue'] > linha_kills_casa).astype(int)
                 m_kills_dinamico = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42).fit(X_historico, df_partidas_local['alvo_kills'])
                 prob_k_dinamica = m_kills_dinamico.predict_proba(input_ia)[0]
+
+                # --- APLICANDO A MATEMÁTICA DO MOMENTUM (V13) ---
+                base_prob_v = m_vit.predict_proba(input_ia)[0]
+                adj_prob_red = base_prob_v[0] + ajuste_win_red
+                adj_prob_azul = base_prob_v[1] + ajuste_win_azul
+                total_adj_v = adj_prob_red + adj_prob_azul
+                prob_v_final = [adj_prob_red / total_adj_v, adj_prob_azul / total_adj_v]
+                
+                adj_prob_t_under = prob_t_dinamica[0] 
+                adj_prob_t_over = prob_t_dinamica[1] + ajuste_tempo_over
+                total_adj_t = adj_prob_t_under + adj_prob_t_over
+                prob_t_final = [adj_prob_t_under / total_adj_t, adj_prob_t_over / total_adj_t]
+
+                adj_prob_k_under = prob_k_dinamica[0] 
+                adj_prob_k_over = prob_k_dinamica[1] + ajuste_kills_over
+                total_adj_k = adj_prob_k_under + adj_prob_k_over
+                prob_k_final = [adj_prob_k_under / total_adj_k, adj_prob_k_over / total_adj_k]
                 
                 # --- O RADAR PANDASCORE EM AÇÃO ---
                 jogo_confirmado = False
@@ -315,11 +389,11 @@ with aba1:
                 st.session_state['analise_salva'] = True
                 st.session_state['dados_analise'] = {
                     't_azul': t_azul, 't_red': t_red, 'mapa': num_mapa, 'linha_t': linha_tempo_casa, 'linha_k': linha_kills_casa,
-                    'prob_v': m_vit.predict_proba(input_ia)[0],
+                    'prob_v': prob_v_final,
                     'prob_d': m_dra.predict_proba(input_ia)[0],
                     'prob_td': m_tot_dra.predict_proba(input_ia)[0],
-                    'prob_t': prob_t_dinamica,
-                    'prob_k': prob_k_dinamica,
+                    'prob_t': prob_t_final,
+                    'prob_k': prob_k_final,
                     'peso_ia': df_peso_ia,
                     's_a': s_a, 's_r': s_r,
                     'achou_jogo': jogo_confirmado,
