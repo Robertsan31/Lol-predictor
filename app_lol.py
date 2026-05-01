@@ -596,7 +596,14 @@ with aba3:
             if st.button("🪄 Ler Bilhete e Salvar na Planilha", type="primary"):
                 with st.spinner("A analisar todas as apostas do print..."):
                     try:
-                        modelo_ideal = 'gemini-1.5-pro'
+                        # O CÃO FAREJADOR DE MODELOS DA SUA CHAVE
+                        modelos_permitidos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                        modelo_ideal = 'gemini-pro-vision' # Fallback para chave antiga
+                        for m in ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro-vision']:
+                            if m in modelos_permitidos:
+                                modelo_ideal = m.replace('models/', '')
+                                break
+                                
                         modelo_visao = genai.GenerativeModel(modelo_ideal)
                         
                         prompt = """
