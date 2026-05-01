@@ -238,7 +238,7 @@ with aba1:
                                 {"vencedor": "Azul" ou "Vermelho", "tempo_jogo": 30.5, "total_kills": 25}
                                 Se não conseguir ver algum dado exato, estime. Retorne apenas o JSON.
                                 """
-                                res_mom = genai.GenerativeModel('gemini-1.5-flash-latest').generate_content([prompt_momentum, Image.open(img_m1)])
+                                res_mom = genai.GenerativeModel('gemini-1.5-pro').generate_content([prompt_momentum, Image.open(img_m1)])
                                 txt_json = res_mom.text.replace('```json', '').replace('```', '').strip()
                                 dados_m1 = json.loads(txt_json)
                                 
@@ -587,7 +587,7 @@ with aba3:
             if st.button("🪄 Ler Bilhete e Salvar na Planilha", type="primary"):
                 with st.spinner("A analisar todas as apostas do print..."):
                     try:
-                        modelo_ideal = 'gemini-1.5-flash-latest'
+                        modelo_ideal = 'gemini-1.5-pro'
                         modelo_visao = genai.GenerativeModel(modelo_ideal)
                         
                         prompt = """
