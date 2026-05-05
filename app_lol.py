@@ -7,6 +7,7 @@ import json
 from PIL import Image
 import requests
 import io
+import os # NOVO: Para o sistema de Auto-Save Físico
 
 # --- IMPORTAÇÕES NOVAS PARA A IA LER IMAGENS ---
 import google.generativeai as genai
@@ -27,11 +28,16 @@ else:
 # Chave secreta da PandaScore (Tenta pegar PANDASCORE_API_KEY, se não achar, tenta a antiga)
 pandascore_key = st.secrets.get("PANDASCORE_API_KEY", st.secrets.get("ODDS_API_KEY", None))
 
-# --- MEMÓRIA DO DIÁRIO DE APOSTAS E DA ANÁLISE ---
+# --- MEMÓRIA DO DIÁRIO DE APOSTAS E DA ANÁLISE (AGORA COM AUTO-SAVE) ---
+ARQUIVO_BACKUP = "diario_backup_v13.csv"
+
 if 'diario_apostas' not in st.session_state:
-    st.session_state['diario_apostas'] = pd.DataFrame(columns=[
-        'Data', 'Mercado', 'Confronto', 'Odd', 'Stake (R$)', 'Status', 'Retorno (R$)'
-    ])
+    if os.path.exists(ARQUIVO_BACKUP):
+        st.session_state['diario_apostas'] = pd.read_csv(ARQUIVO_BACKUP)
+    else:
+        st.session_state['diario_apostas'] = pd.DataFrame(columns=[
+            'Data', 'Mercado', 'Confronto', 'Odd', 'Stake (R$)', 'Status', 'Retorno (R$)'
+        ])
 if 'analise_salva' not in st.session_state:
     st.session_state['analise_salva'] = False
 
@@ -248,7 +254,8 @@ with aba1:
                                         break
                                 
                                 res_mom = genai.GenerativeModel(modelo_ideal).generate_content([prompt_momentum, Image.open(img_m1)])
-                                txt_json = res_mom.text.replace('```json', '').replace('```', '').strip()
+                                txt_json = res_mom.text.replace('```json', '').replace('
+```', '').strip()
                                 dados_m1 = json.loads(txt_json)
                                 
                                 st.success(f"✅ Lido! Vencedor: {dados_m1.get('vencedor', '?')}, Tempo: {dados_m1.get('tempo_jogo', 0)}m, Kills: {dados_m1.get('total_kills', 0)}")
@@ -565,7 +572,9 @@ with aba2:
                         'Status': 'Pendente',
                         'Retorno (R$)': 0.0
                     }])
+                    # --- AUTO-SAVE (MANUAL) ---
                     st.session_state['diario_apostas'] = pd.concat([st.session_state['diario_apostas'], nova_aposta], ignore_index=True)
+                    st.session_state['diario_apostas'].to_csv(ARQUIVO_BACKUP, index=False)
                     st.toast("Aposta salva com sucesso!")
         else:
             st.error(f"🛑 **EV Negativo ({ev_percentual:.2f}%).**")
@@ -642,7 +651,10 @@ with aba3:
                             })
                         
                         df_novos = pd.DataFrame(novas_linhas)
+                        
+                        # --- AUTO-SAVE (SCANNER) ---
                         st.session_state['diario_apostas'] = pd.concat([st.session_state['diario_apostas'], df_novos], ignore_index=True)
+                        st.session_state['diario_apostas'].to_csv(ARQUIVO_BACKUP, index=False)
                         st.success(f"✅ Sucesso! {len(novas_linhas)} apostas foram detectadas e adicionadas.")
                     except Exception as e:
                         st.error(f"Erro ao processar imagem: {e}")
@@ -668,7 +680,10 @@ with aba3:
         use_container_width=True
     )
     
+    # --- AUTO-SAVE (EDIÇÃO DA TABELA) ---
     st.session_state['diario_apostas'] = df_editado
+    df_editado.to_csv(ARQUIVO_BACKUP, index=False)
+    
     lucro_total = df_editado['Retorno (R$)'].sum()
     st.markdown("---")
     
