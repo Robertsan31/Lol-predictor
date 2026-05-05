@@ -254,8 +254,7 @@ with aba1:
                                         break
                                 
                                 res_mom = genai.GenerativeModel(modelo_ideal).generate_content([prompt_momentum, Image.open(img_m1)])
-                                txt_json = res_mom.text.replace('```json', '').replace('
-```', '').strip()
+                                txt_json = res_mom.text.replace('```json', '').replace('```', '').strip()
                                 dados_m1 = json.loads(txt_json)
                                 
                                 st.success(f"✅ Lido! Vencedor: {dados_m1.get('vencedor', '?')}, Tempo: {dados_m1.get('tempo_jogo', 0)}m, Kills: {dados_m1.get('total_kills', 0)}")
