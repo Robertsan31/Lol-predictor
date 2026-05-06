@@ -165,6 +165,17 @@ def treinar_motor_dinamico_v12():
     
     lista_times = sorted(df_limpo['teamname'].unique())
     lista_patches = sorted(df_limpo['patch'].dropna().unique(), reverse=True)
+    
+    # --- NOVO: SISTEMA ANTI-ATRASO DE PATCH ---
+    try:
+        # Pega o patch mais alto (ex: 26.8) e força a criação do 26.9 na tela
+        patch_recente = float(lista_patches[0])
+        patch_novo = str(round(patch_recente + 0.1, 1))
+        if patch_novo not in lista_patches:
+            lista_patches.insert(0, patch_novo)
+    except:
+        pass
+        
     ultimos_dados = df_limpo.groupby(['teamname', 'patch']).last().reset_index()
     ultima_data = df_limpo['date'].max().strftime("%d/%m/%Y")
     
